@@ -153,12 +153,22 @@ async function processDataStep2() {
         
         if (driven7Channel !== null) {
             const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
-            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx, thresholdCoeff: 2 }) : null;
+            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, {
+                startIndex: riseSearchStartIdx,
+                thresholdCoeff: 4,
+                stdCoeff: 4,
+                sustainMs: 0.5
+            }) : null;
         }
         
         if (driven8Channel !== null) {
             const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
-            driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
+            driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, {
+                startIndex: riseSearchStartIdx,
+                thresholdCoeff: 3,
+                stdCoeff: 3,
+                sustainMs: 0.3
+            }) : null;
         }
         
         if (modelFrontChannel !== null) {

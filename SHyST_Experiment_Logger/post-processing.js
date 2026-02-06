@@ -462,13 +462,23 @@ async function processData() {
             
             if (driven7Channel !== null) {
                 const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
-                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx, thresholdCoeff: 2 }) : null;
+                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, {
+                    startIndex: riseSearchStartIdx,
+                    thresholdCoeff: 4,
+                    stdCoeff: 4,
+                    sustainMs: 0.5
+                }) : null;
                 console.log('Driven7 압력 상승:', driven7Index);
             }
             
             if (driven8Channel !== null) {
                 const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
-                driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
+                driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, {
+                    startIndex: riseSearchStartIdx,
+                    thresholdCoeff: 3,
+                    stdCoeff: 3,
+                    sustainMs: 0.3
+                }) : null;
                 console.log('Driven8 압력 상승:', driven8Index);
             }
             
@@ -966,7 +976,13 @@ function findPressureRise(data, fps, options = {}) {
     // direction='increase', window_size=1, gradient_check_size=10000
     if (!data || data.length === 0) return null;
     
-    const { startIndex = 0, thresholdCoeff = 3, baselineMs = 5, stdCoeff = 3 } = options;
+    const {
+        startIndex = 0,
+        thresholdCoeff = 3,
+        baselineMs = 5,
+        stdCoeff = 3,
+        sustainMs = 0.3
+    } = options;
     const source = data.slice(Math.max(0, startIndex));
     
     console.log('압력 상승 감지 시작:', data.length, '샘플', '검색 시작:', startIndex);
@@ -992,6 +1008,15 @@ function findPressureRise(data, fps, options = {}) {
     
     console.log('압력 상승 임계값:', threshold);
     
+    const baselineSamples = Math.min(filtered.length, Math.max(1000, Math.floor(fps * (baselineMs / 1000))));
+    const baseline = filtered.slice(0, baselineSamples);
+    const baselineMean = average(baseline);
+    const baselineStd = standardDeviation(baseline);
+    const valueThreshold = (baselineMean !== null && baselineStd !== null)
+        ? (baselineMean + stdCoeff * baselineStd)
+        : null;
+    const sustainSamples = Math.max(2, Math.floor(fps * (sustainMs / 1000)));
+    
     // 4. 전체 기울기 계산 + 최대/최소 추적
     let maxIdx = null;
     let minIdx = null;
@@ -1010,30 +1035,37 @@ function findPressureRise(data, fps, options = {}) {
         }
         
         if (g > threshold) {
-            const index = (i - 1) + startIndex;
-            console.log('압력 상승 감지:', index, 'gradient:', g);
-            return index;
+            const candidate = i - 1;
+            if (valueThreshold !== null) {
+                const window = filtered.slice(candidate, Math.min(filtered.length, candidate + sustainSamples));
+                const windowAvg = average(window);
+                if (windowAvg !== null && windowAvg > valueThreshold) {
+                    const index = candidate + startIndex;
+                    console.log('압력 상승 감지:', index, 'gradient:', g);
+                    return index;
+                }
+            } else {
+                const index = candidate + startIndex;
+                console.log('압력 상승 감지:', index, 'gradient:', g);
+                return index;
+            }
         }
     }
     
     // 5. fallback: 베이스라인 평균+표준편차 기준
-    const baselineSamples = Math.min(filtered.length, Math.max(1000, Math.floor(fps * (baselineMs / 1000))));
-    const baseline = filtered.slice(0, baselineSamples);
-    const baselineMean = average(baseline);
-    const baselineStd = standardDeviation(baseline);
-    const valueThreshold = baselineMean !== null && baselineStd !== null
-        ? (baselineMean + stdCoeff * baselineStd)
-        : null;
-    
     if (valueThreshold !== null && isFinite(valueThreshold)) {
         for (let i = 0; i < filtered.length; i++) {
             if (filtered[i] > valueThreshold) {
-                const index = i + startIndex;
-                console.warn('⚠️ 임계값 초과 지점이 없어 값 기준으로 대체:', {
-                    index,
-                    threshold: valueThreshold
-                });
-                return index;
+                const window = filtered.slice(i, Math.min(filtered.length, i + sustainSamples));
+                const windowAvg = average(window);
+                if (windowAvg !== null && windowAvg > valueThreshold) {
+                    const index = i + startIndex;
+                    console.warn('⚠️ 임계값 초과 지점이 없어 값 기준으로 대체:', {
+                        index,
+                        threshold: valueThreshold
+                    });
+                    return index;
+                }
             }
         }
     }
