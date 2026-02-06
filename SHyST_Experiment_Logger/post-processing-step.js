@@ -250,15 +250,26 @@ function drawFilteredDataGraph(filteredData, daqConnection, testTimeResult = nul
     const numSamples = filteredData.numSamples;
     const timeData = Array.from({length: numSamples}, (_, i) => -1 + (i / numSamples) * 31);
     
-    // 모든 채널의 데이터 범위 계산
-    let allValues = [];
+    // 모든 채널의 데이터 범위 계산 (대용량 안전)
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    
     Object.values(filteredData.channels).forEach(data => {
-        allValues = allValues.concat(data);
+        const stats = arrayMinMax(data);
+        if (stats.min === null || stats.max === null) return;
+        if (stats.min < yMin) yMin = stats.min;
+        if (stats.max > yMax) yMax = stats.max;
     });
     
-    const yMin = Math.min(...allValues);
-    const yMax = Math.max(...allValues);
-    const yRange = yMax - yMin;
+    if (!isFinite(yMin) || !isFinite(yMax)) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const yRange = yMax - yMin || 1;
     
     // 축 그리기
     ctx.strokeStyle = '#000';

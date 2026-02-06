@@ -171,10 +171,12 @@ function visualizeData() {
         if (!channelData || channelData.length === 0) continue;
         
         // 정규화
-        const minTime = Math.min(...timeData);
-        const maxTime = Math.max(...timeData);
-        const minVal = Math.min(...channelData);
-        const maxVal = Math.max(...channelData);
+        const timeStats = arrayMinMax(timeData);
+        const valueStats = arrayMinMax(channelData);
+        const minTime = timeStats.min;
+        const maxTime = timeStats.max;
+        const minVal = valueStats.min;
+        const maxVal = valueStats.max;
         
         if (maxTime === minTime || maxVal === minVal) continue;
         

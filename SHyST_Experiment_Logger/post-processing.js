@@ -374,12 +374,13 @@ async function processData() {
                 throw new Error(`Driver 포트 ${driverChannel}의 데이터가 실험 데이터에 없습니다.\n\n찾는 채널: ${channelKey}\n사용 가능한 채널: ${availableDataChannels}\n\n실험 데이터 파일의 2번째 시트에 "전압_${driverChannel}" 컬럼이 있는지 확인해주세요.`);
             }
             
+            const driverStats = arrayMinMax(driverData);
             console.log('✅ Driver 데이터 로드 성공:', {
                 channel: driverChannel,
                 channelKey: channelKey,
                 samples: driverData.length,
-                min: Math.min(...driverData).toFixed(6),
-                max: Math.max(...driverData).toFixed(6),
+                min: driverStats.min !== null ? driverStats.min.toFixed(6) : 'N/A',
+                max: driverStats.max !== null ? driverStats.max.toFixed(6) : 'N/A',
                 avg: average(driverData).toFixed(6),
                 first5: driverData.slice(0, 5).map(v => v.toFixed(6))
             });
@@ -393,7 +394,8 @@ async function processData() {
             driverIndex = findDriverDropIndex(driverData, FPS, driverThresholdCoeff);
             
             if (driverIndex === null) {
-                throw new Error(`Driver 압력 강하를 감지할 수 없습니다.\n\n데이터 정보:\n- 샘플 수: ${driverData.length}\n- 최소값: ${Math.min(...driverData).toFixed(4)}\n- 최대값: ${Math.max(...driverData).toFixed(4)}\n- 평균값: ${average(driverData).toFixed(4)}\n\n임계값 계수를 조정해보세요 (현재: ${driverThresholdCoeff})`);
+                const driverStats = arrayMinMax(driverData);
+                throw new Error(`Driver 압력 강하를 감지할 수 없습니다.\n\n데이터 정보:\n- 샘플 수: ${driverData.length}\n- 최소값: ${driverStats.min !== null ? driverStats.min.toFixed(4) : 'N/A'}\n- 최대값: ${driverStats.max !== null ? driverStats.max.toFixed(4) : 'N/A'}\n- 평균값: ${average(driverData).toFixed(4)}\n\n임계값 계수를 조정해보세요 (현재: ${driverThresholdCoeff})`);
             }
             
             console.log('✅ Driver 압력 강하 감지:', driverIndex, '/', driverData.length, '샘플');
@@ -561,8 +563,8 @@ async function processData() {
                             length: data.length,
                             first10: data.slice(0, 10),
                             last10: data.slice(-10),
-                            min: Math.min(...data),
-                            max: Math.max(...data),
+                            min: arrayMinMax(data).min,
+                            max: arrayMinMax(data).max,
                             avg: average(data),
                             std: standardDeviation(data)
                         }]
@@ -719,8 +721,8 @@ function findDriverDropIndex(driverData, fps, thresholdCoeff = 3) {
             console.error('❌ 임계값 조건을 만족하는 감소 시작점을 찾을 수 없습니다.');
             console.log('디버그 정보:', {
                 threshold: -threshold,
-                minGradientFound: Math.min(...filteredGradient),
-                maxGradientFound: Math.max(...filteredGradient),
+                minGradientFound: arrayMinMax(filteredGradient).min,
+                maxGradientFound: arrayMinMax(filteredGradient).max,
                 sampleGradients: filteredGradient.slice(0, 10).map(g => g.toFixed(6))
             });
             return null;
@@ -1002,7 +1004,7 @@ function calculateTestTime(filteredData, driven8Channel, fps) {
     }
     
     // 최대 RMS 찾기
-    const maxRMS = Math.max(...rmsData);
+    const maxRMS = arrayMax(rmsData);
     const threshold = maxRMS * 0.05; // 5% 임계값
     
     // 시작점: RMS가 임계값을 넘는 첫 지점
@@ -1182,6 +1184,27 @@ function findChannelByDescription(daqConnection, description) {
         }
     }
     return null;
+}
+
+function arrayMinMax(arr) {
+    if (!arr || arr.length === 0) return { min: null, max: null };
+    
+    let min = Infinity;
+    let max = -Infinity;
+    
+    for (let i = 0; i < arr.length; i++) {
+        const v = arr[i];
+        if (typeof v !== 'number' || !isFinite(v)) continue;
+        if (v < min) min = v;
+        if (v > max) max = v;
+    }
+    
+    if (!isFinite(min) || !isFinite(max)) return { min: null, max: null };
+    return { min, max };
+}
+
+function arrayMax(arr) {
+    return arrayMinMax(arr).max;
 }
 
 function average(arr) {

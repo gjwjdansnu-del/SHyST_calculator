@@ -69,10 +69,10 @@ function drawResultPreview(filteredData, daqConnection) {
     let maxY = -Infinity;
     
     channels.forEach(ch => {
-        const min = Math.min(...ch.data);
-        const max = Math.max(...ch.data);
-        minY = Math.min(minY, min);
-        maxY = Math.max(maxY, max);
+        const stats = arrayMinMax(ch.data);
+        if (stats.min === null || stats.max === null) return;
+        if (stats.min < minY) minY = stats.min;
+        if (stats.max > maxY) maxY = stats.max;
     });
     
     // 여유 공간 추가
@@ -80,7 +80,10 @@ function drawResultPreview(filteredData, daqConnection) {
     minY -= yRange * 0.1;
     maxY += yRange * 0.1;
     
-    const maxX = Math.max(...channels.map(ch => ch.data.length));
+    let maxX = 0;
+    channels.forEach(ch => {
+        if (ch.data.length > maxX) maxX = ch.data.length;
+    });
     
     // 축 그리기
     ctx.strokeStyle = '#333';
