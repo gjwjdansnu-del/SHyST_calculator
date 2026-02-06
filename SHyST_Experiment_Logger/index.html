@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.23</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.24</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -363,57 +363,40 @@
                 </div>
 
                 <div class="form-section">
-                    <h3>계산 방법 선택</h3>
-                    <div class="calc-method-selector">
-                        <label class="radio-card">
-                            <input type="radio" name="calc-method" value="estcn" checked>
-                            <div class="radio-content">
-                                <strong>ESTCN</strong>
-                                <p>평형 상태 가정, 빠른 계산</p>
-                            </div>
-                        </label>
-                        <label class="radio-card">
-                            <input type="radio" name="calc-method" value="1d">
-                            <div class="radio-content">
-                                <strong>1D 수치 계산</strong>
-                                <p>온도 의존 물성치, 정확한 계산</p>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="form-section">
-                    <h3>계산 입력값</h3>
+                    <h3>계산 입력값 확인</h3>
                     <div class="info-box">
-                        <p>실험 전/후 데이터가 자동으로 불러와집니다.</p>
+                        <p>✅ DB에서 자동으로 불러온 데이터로 유동조건을 계산합니다.</p>
+                        <p>📌 충격파 속도, p₁, T₁, p₅ₛ, 목표 마하수를 사용합니다.</p>
                     </div>
                     <div class="form-grid">
                         <div class="form-group">
-                            <label>p1 [bar]</label>
+                            <label>p₁ (Driven 초기) [bar]</label>
                             <input type="number" id="calc-p1" step="0.0001" readonly>
                         </div>
                         <div class="form-group">
-                            <label>T1 [K]</label>
+                            <label>T₁ (Driven 초기) [K]</label>
                             <input type="number" id="calc-t1" step="0.01" readonly>
                         </div>
                         <div class="form-group">
-                            <label>p4 [bar]</label>
-                            <input type="number" id="calc-p4" step="0.01" readonly>
+                            <label>p₅ₛ (측정 평균) [bar]</label>
+                            <input type="number" id="calc-p5s" step="0.01" readonly>
                         </div>
                         <div class="form-group">
-                            <label>T4 [K]</label>
-                            <input type="number" id="calc-t4" step="0.01" readonly>
+                            <label>충격파 속도 [m/s]</label>
+                            <input type="number" id="calc-shock-speed" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>목표 마하수</label>
+                            <input type="number" id="calc-target-mach" step="0.1" readonly>
                         </div>
                         <div class="form-group">
                             <label>드리븐 가스</label>
                             <input type="text" id="calc-driven-gas" readonly>
                         </div>
-                        <div class="form-group">
-                            <label>드라이버 가스</label>
-                            <input type="text" id="calc-driver-gas" readonly>
-                        </div>
                     </div>
-                    <button onclick="calculateFlowConditions()" class="btn-primary">▶️ 계산 시작</button>
+                    <button onclick="calculateFlowConditions()" class="btn-primary" style="font-size: 18px; padding: 15px 40px; width: 100%;">
+                        🧮 유동조건 계산 시작
+                    </button>
                 </div>
 
                 <div id="calculation-results" class="form-section" style="display:none;">

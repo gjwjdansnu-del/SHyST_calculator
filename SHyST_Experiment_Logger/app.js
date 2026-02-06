@@ -62,6 +62,25 @@ function switchTab(tabName) {
     // 선택된 탭 활성화
     event.target.classList.add('active');
     document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // 계산 탭으로 전환 시 입력값 자동 로드
+    if (tabName === 'calculation') {
+        loadCalculationInputs();
+    }
+}
+
+function loadCalculationInputs() {
+    if (!currentExperiment) return;
+    
+    const after = currentExperiment.after?.labviewLog || {};
+    const before = currentExperiment.before || {};
+    
+    document.getElementById('calc-p1').value = after.p1_avg || '';
+    document.getElementById('calc-t1').value = after.t1_avg || '';
+    document.getElementById('calc-p5s').value = after.p5_avg || '';
+    document.getElementById('calc-shock-speed').value = after.shockSpeed || '';
+    document.getElementById('calc-target-mach').value = before.expInfo?.targetMach || '';
+    document.getElementById('calc-driven-gas').value = before.shystSetting?.drivenGas || '';
 }
 
 // ============================================
@@ -309,24 +328,21 @@ async function calculateFlowConditions() {
         return;
     }
     
-    const method = document.querySelector('input[name="calc-method"]:checked').value;
-    
     // 입력값 수집
     const p1_bar = currentExperiment.after.labviewLog.p1_avg;
-    const t1_c = currentExperiment.after.labviewLog.t1_avg;
+    const t1_k = currentExperiment.after.labviewLog.t1_avg;
     const p5s_bar = currentExperiment.after.labviewLog.p5_avg;
     const shockSpeed = currentExperiment.after.labviewLog.shockSpeed;
     const targetMach = currentExperiment.before.expInfo.targetMach;
     
-    if (!p1_bar || !t1_c || !p5s_bar || !shockSpeed) {
-        alert('실험 후 데이터(p1, T1, p5_avg, shock_speed)를 먼저 입력해주세요.');
-        switchTab('processing');
+    if (!p1_bar || !t1_k || !p5s_bar || !shockSpeed) {
+        alert('실험 후 데이터(p1, T1, p5_avg, shock_speed)를 먼저 입력해주세요.\n\n데이터 후처리 탭에서 먼저 처리를 완료해주세요.');
         return;
     }
     
     // 단위 변환
     const p1 = p1_bar * 1e5; // Pa
-    const t1 = t1_c + 273.15; // K
+    const t1 = t1_k; // K (이미 K 단위)
     const p5s = p5s_bar * 1e5; // Pa
     
     const drivenGas = currentExperiment.before.shystSetting.drivenGas;
@@ -418,7 +434,6 @@ async function calculateFlowConditions() {
         }
         
         // 결과 저장
-        currentExperiment.calculation.method = method;
         currentExperiment.calculation.stages = {
             stage1: stage1,
             stage2: stage2,
@@ -431,6 +446,8 @@ async function calculateFlowConditions() {
         currentExperiment.status = 'completed';
         
         await saveExperiment(currentExperiment);
+        
+        alert('✅ 유동조건 계산이 완료되었습니다!');
         
         // 결과 표시
         displayCalculationResults(currentExperiment.calculation.stages);
