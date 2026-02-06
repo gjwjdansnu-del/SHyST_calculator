@@ -314,11 +314,12 @@ async function calculateFlowConditions() {
     // 입력값 수집
     const p1_bar = currentExperiment.after.labviewLog.p1_avg;
     const t1_c = currentExperiment.after.labviewLog.t1_avg;
-    const p4_bar = currentExperiment.after.labviewLog.p4_avg;
-    const t4_c = currentExperiment.after.labviewLog.t4_avg;
+    const p5s_bar = currentExperiment.after.labviewLog.p5_avg;
+    const shockSpeed = currentExperiment.after.labviewLog.shockSpeed;
+    const targetMach = currentExperiment.before.expInfo.targetMach;
     
-    if (!p1_bar || !t1_c || !p4_bar || !t4_c) {
-        alert('실험 후 데이터(p1, T1, p4, T4)를 먼저 입력해주세요.');
+    if (!p1_bar || !t1_c || !p5s_bar || !shockSpeed) {
+        alert('실험 후 데이터(p1, T1, p5_avg, shock_speed)를 먼저 입력해주세요.');
         switchTab('processing');
         return;
     }
@@ -326,8 +327,7 @@ async function calculateFlowConditions() {
     // 단위 변환
     const p1 = p1_bar * 1e5; // Pa
     const t1 = t1_c + 273.15; // K
-    const p4 = p4_bar * 1e5; // Pa
-    const t4 = t4_c + 273.15; // K
+    const p5s = p5s_bar * 1e5; // Pa
     
     const drivenGas = currentExperiment.before.shystSetting.drivenGas;
     const driverGas = currentExperiment.before.shystSetting.driverGas;
@@ -337,22 +337,80 @@ async function calculateFlowConditions() {
         const drivenProps = getGasProperties(drivenGas);
         const driverProps = getGasProperties(driverGas);
         
-        // 마하수 계산
-        const machResult = findMachFromP4(p4, p1, t1, t4, drivenProps, driverProps, 5.0);
+        const mw1 = drivenProps.mw;
+        const R1 = R_universal / mw1;
+        const isMix = drivenProps.X_He !== undefined;
         
-        if (!machResult.converged) {
-            alert('마하수 계산이 수렴하지 않았습니다.');
-            return;
+        // Stage 1: Driven 초기
+        const g1 = isMix ? calcGammaFromT_mix(t1, drivenProps.X_He) : calcGammaFromT(t1, drivenGas);
+        const a1 = Math.sqrt(g1 * R1 * t1);
+        const rho1 = p1 / (R1 * t1);
+        const cp1 = isMix ? calcCpFromT_mix(t1, drivenProps.X_He, mw1) : calcCpFromT(t1, drivenGas, mw1);
+        const h1 = cp1 * t1;
+        const s1 = cp1 * Math.log(t1) - R1 * Math.log(p1);
+        
+        const stage1 = {
+            p: p1, t: t1, rho: rho1, u: 0, h: h1, R: R1,
+            gamma: g1, cp: cp1, a: a1, s: s1, V: 0, M: 0
+        };
+        
+        // 충격파 마하수
+        const M = shockSpeed / a1;
+        
+        // Stage 2: 충격파 후
+        const state2Raw = calcIncidentShock(M, p1, t1, drivenGas, mw1, R1, isMix ? drivenProps.X_He : null);
+        const g2 = isMix ? calcGammaFromT_mix(state2Raw.t, drivenProps.X_He) : calcGammaFromT(state2Raw.t, drivenGas);
+        const cp2 = isMix ? calcCpFromT_mix(state2Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state2Raw.t, drivenGas, mw1);
+        const a2 = Math.sqrt(g2 * R1 * state2Raw.t);
+        const h2 = cp2 * state2Raw.t;
+        const s2 = cp2 * Math.log(state2Raw.t) - R1 * Math.log(state2Raw.p);
+        
+        const stage2 = {
+            p: state2Raw.p, t: state2Raw.t, rho: state2Raw.rho, u: state2Raw.u, h: h2, R: R1,
+            gamma: g2, cp: cp2, a: a2, s: s2, V: state2Raw.u, M: state2Raw.u / a2
+        };
+        
+        // Stage 4: Driver 초기 (p4는 측정 안 되므로 일단 null)
+        const stage4 = null;
+        
+        // Stage 5: 반사 충격파 후
+        const p2_p1 = state2Raw.p / p1;
+        const state5Raw = calcReflectedShock(state2Raw.p, state2Raw.t, state2Raw.rho, state2Raw.u, p2_p1, drivenGas, mw1, R1, isMix ? drivenProps.X_He : null);
+        const g5 = isMix ? calcGammaFromT_mix(state5Raw.t, drivenProps.X_He) : calcGammaFromT(state5Raw.t, drivenGas);
+        const cp5 = isMix ? calcCpFromT_mix(state5Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state5Raw.t, drivenGas, mw1);
+        const a5 = Math.sqrt(g5 * R1 * state5Raw.t);
+        const h5 = cp5 * state5Raw.t;
+        const s5 = cp5 * Math.log(state5Raw.t) - R1 * Math.log(state5Raw.p);
+        
+        const stage5 = {
+            p: state5Raw.p, t: state5Raw.t, rho: state5Raw.rho, u: 0, h: h5, R: R1,
+            gamma: g5, cp: cp5, a: a5, s: s5, V: 0, M: 0
+        };
+        
+        // Stage 5s: 측정 압력 기준 안정화 (단열 과정)
+        const p5s_p5 = p5s / state5Raw.p;
+        let t5s = state5Raw.t * Math.pow(p5s_p5, (g5 - 1) / g5);
+        
+        for (let iter = 0; iter < 5; iter++) {
+            const g5s = isMix ? calcGammaFromT_mix(t5s, drivenProps.X_He) : calcGammaFromT(t5s, drivenGas);
+            t5s = state5Raw.t * Math.pow(p5s_p5, (g5s - 1) / g5s);
         }
         
-        const M = machResult.M;
+        const g5s = isMix ? calcGammaFromT_mix(t5s, drivenProps.X_He) : calcGammaFromT(t5s, drivenGas);
+        const rho5s = p5s / (R1 * t5s);
+        const a5s = Math.sqrt(g5s * R1 * t5s);
+        const cp5s = isMix ? calcCpFromT_mix(t5s, drivenProps.X_He, mw1) : calcCpFromT(t5s, drivenGas, mw1);
+        const h5s = cp5s * t5s;
+        const s5s = cp5s * Math.log(t5s) - R1 * Math.log(p5s);
         
-        // 전체 상태 계산
-        const states = calcShockTube(M, p1, t1, p4, t4, drivenProps, driverProps, drivenGas, driverGas);
+        const stage5s = {
+            p: p5s, t: t5s, rho: rho5s, u: 0, h: h5s, R: R1,
+            gamma: g5s, cp: cp5s, a: a5s, s: s5s, V: 0, M: 0
+        };
         
-        // State 7 계산 (노즐 팽창)
-        const M7 = 6.0; // 기본값, 나중에 UI에서 입력받을 수 있음
-        const state7 = calcState7(states.state5, M7, drivenProps, drivenGas);
+        // Stage 7: 등엔트로피 팽창
+        const M7 = targetMach || 6.0;
+        const state7 = calcState7(stage5s, M7, drivenProps, drivenGas);
         
         if (!state7) {
             alert('State 7 계산에 실패했습니다.');
@@ -362,11 +420,11 @@ async function calculateFlowConditions() {
         // 결과 저장
         currentExperiment.calculation.method = method;
         currentExperiment.calculation.stages = {
-            stage1: states.state1,
-            stage2: states.state2,
-            stage5: states.state5,
-            stage5s: null, // TODO
-            stage6: null, // TODO
+            stage1: stage1,
+            stage2: stage2,
+            stage4: stage4,
+            stage5: stage5,
+            stage5s: stage5s,
             stage7: state7
         };
         
@@ -400,14 +458,24 @@ function displayCalculationResults(stages) {
         gridDiv.appendChild(createStageCard('Stage 2 (충격파 후)', stages.stage2));
     }
     
+    // Stage 4
+    if (stages.stage4) {
+        gridDiv.appendChild(createStageCard('Stage 4 (Driver 초기)', stages.stage4));
+    }
+    
     // Stage 5
     if (stages.stage5) {
         gridDiv.appendChild(createStageCard('Stage 5 (반사 충격파)', stages.stage5));
     }
     
+    // Stage 5s
+    if (stages.stage5s) {
+        gridDiv.appendChild(createStageCard('Stage 5s (안정화)', stages.stage5s));
+    }
+    
     // Stage 7
     if (stages.stage7) {
-        gridDiv.appendChild(createStageCard('Stage 7 (노즐 팽창)', stages.stage7));
+        gridDiv.appendChild(createStageCard('Stage 7 (시험부)', stages.stage7));
     }
 }
 
