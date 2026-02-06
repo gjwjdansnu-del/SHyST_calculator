@@ -245,17 +245,31 @@ async function saveProcessingData() {
         return;
     }
     
+    const processed = (typeof processedResults !== 'undefined' && processedResults?.measurements)
+        ? processedResults.measurements
+        : null;
+    
+    const t1FromBefore = currentExperiment?.before?.shystSetting?.drivenTemp ?? currentExperiment?.before?.shystSetting?.airTemp ?? null;
+    const t1Value = parseFloat(document.getElementById('t1-avg').value) || processed?.t1_avg || t1FromBefore || null;
+    
     // UI에서 데이터 수집
     currentExperiment.after.labviewLog = {
-        p1_avg: parseFloat(document.getElementById('p1-avg').value) || null,
-        t1_avg: parseFloat(document.getElementById('t1-avg').value) || null,
-        p4_avg: parseFloat(document.getElementById('p4-avg').value) || null,
-        p4_std: parseFloat(document.getElementById('p4-std').value) || null,
-        t4_avg: parseFloat(document.getElementById('t4-avg').value) || null,
-        p5_avg: parseFloat(document.getElementById('p5-avg').value) || null,
-        p5_std: parseFloat(document.getElementById('p5-std').value) || null,
-        testTime: parseFloat(document.getElementById('test-time').value) || null,
-        shockSpeed: parseFloat(document.getElementById('shock-speed').value) || null
+        p1_avg: parseFloat(document.getElementById('p1-avg').value) || processed?.p1_avg || null,
+        t1_avg: t1Value,
+        p4_avg: parseFloat(document.getElementById('p4-avg').value) || processed?.p4_avg || null,
+        p4_std: parseFloat(document.getElementById('p4-std').value) || processed?.p4_std || null,
+        t4_avg: parseFloat(document.getElementById('t4-avg').value) || processed?.t4_avg || null,
+        p5_avg: parseFloat(document.getElementById('p5-avg').value) || processed?.p5_avg || null,
+        p5_std: parseFloat(document.getElementById('p5-std').value) || processed?.p5_std || null,
+        testTime: parseFloat(document.getElementById('test-time').value) || processed?.test_time || null,
+        shockSpeed: parseFloat(document.getElementById('shock-speed').value) || processed?.shock_speed || null,
+        outputDelayTime: processed?.output_delay_time ?? null,
+        outputReadyTime: processed?.output_ready_time ?? null,
+        firstDiaphragmRupture: processed?.first_diaphragm_rupture ?? null,
+        secondDiaphragmRupture: processed?.second_diaphragm_rupture ?? null,
+        testTimeStart: processed?.test_time_start ?? null,
+        testTimeEnd: processed?.test_time_end ?? null,
+        modelFrontTime: processed?.model_front_time ?? null
     };
     
     currentExperiment.status = 'processing_complete';

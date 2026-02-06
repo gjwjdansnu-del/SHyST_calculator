@@ -443,6 +443,7 @@ async function processData() {
         
         // Step 5: Driven 압력 상승 감지
         let driven7Channel, driven8Channel, driven7Index, driven8Index;
+        let modelFrontChannel, modelFrontIndex;
         try {
             console.log('=== Step 5: Driven 압력 상승 감지 ===');
             updateProgress(70, '5/7 Driven 압력 상승 감지 중...');
@@ -454,6 +455,7 @@ async function processData() {
             
             driven7Index = null;
             driven8Index = null;
+            modelFrontIndex = null;
             
             if (driven7Channel !== null) {
                 driven7Index = findPressureRise(filteredData.channels[`ch${driven7Channel}`], FPS);
@@ -463,6 +465,14 @@ async function processData() {
             if (driven8Channel !== null) {
                 driven8Index = findPressureRise(filteredData.channels[`ch${driven8Channel}`], FPS);
                 console.log('Driven8 압력 상승:', driven8Index);
+            }
+            
+            if (detectModelFront) {
+                modelFrontChannel = findChannelByDescription(uploadedDAQConnection, 'model front');
+                if (modelFrontChannel !== null) {
+                    modelFrontIndex = findPressureRise(filteredData.channels[`ch${modelFrontChannel}`], FPS);
+                    console.log('Model front 압력 상승:', modelFrontIndex);
+                }
             }
             
             console.log('✅ Driven 압력 상승 감지 완료');
@@ -484,7 +494,7 @@ async function processData() {
                     length: manualTestTimeLength
                 });
                 
-                const startIndex = Math.floor(manualTestTimeStart / 1000 * FPS);
+                const startIndex = Math.floor((manualTestTimeStart + 1) / 1000 * FPS);
                 const endIndex = startIndex + Math.floor(manualTestTimeLength / 1000 * FPS);
                 
                 testTimeResult = {
@@ -508,7 +518,18 @@ async function processData() {
         try {
             console.log('=== Step 7: 측정값 계산 ===');
             updateProgress(95, '7/7 측정값 계산 중...');
-            measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS);
+            const t1FromBefore = currentExperiment?.before?.shystSetting?.drivenTemp ?? currentExperiment?.before?.shystSetting?.airTemp ?? null;
+            const sliceStartMs = slicedData.timeRange?.start ?? -1;
+            const testTimeStartMs = manualTestTimeStart !== null ? manualTestTimeStart : null;
+            measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS, {
+                driverIndex,
+                driven7Index,
+                driven8Index,
+                modelFrontIndex: modelFrontIndex ?? null,
+                timeOffsetStartMs: sliceStartMs,
+                testTimeStartMs,
+                t1FromBefore
+            });
             console.log('✅ 측정값 계산 완료:', measurements);
         } catch (e) {
             console.error('❌ Step 7 실패 (측정값 계산):', e);
@@ -524,6 +545,7 @@ async function processData() {
             driverIndex: driverIndex,
             driven7Index: driven7Index,
             driven8Index: driven8Index,
+            modelFrontIndex: modelFrontIndex ?? null,
             testTimeResult: testTimeResult
         };
         
@@ -1040,15 +1062,25 @@ function calculateTestTime(filteredData, driven8Channel, fps) {
 // 10. 측정값 계산
 // ============================================
 
-function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps) {
+function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps, options = {}) {
     // 각 채널 찾기
     const driven7Ch = findChannelByDescription(daqConnection, 'driven7');
     const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
-    const drivenTCh = findChannelByDescription(daqConnection, 'drivenT');
+    
+    const {
+        driverIndex = null,
+        driven7Index = null,
+        driven8Index = null,
+        modelFrontIndex = null,
+        timeOffsetStartMs = -1,
+        testTimeStartMs = null,
+        distanceMeters = 0.5,
+        t1FromBefore = null
+    } = options;
     
     const measurements = {
         p1_avg: null,
-        t1_avg: null,
+        t1_avg: t1FromBefore ?? null,
         p4_avg: null,
         p4_std: null,
         t4_avg: null,
@@ -1057,7 +1089,12 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps)
         test_time: testTimeResult.testTime,
         shock_speed: null,
         output_delay_time: null,
-        output_ready_time: null
+        output_ready_time: null,
+        first_diaphragm_rupture: 0.0,
+        second_diaphragm_rupture: null,
+        test_time_start: null,
+        test_time_end: null,
+        model_front_time: null
     };
     
     // p1 (driven7 초반 평균)
@@ -1066,15 +1103,6 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps)
         if (data) {
             const baseline = data.slice(0, Math.min(1000, data.length));
             measurements.p1_avg = average(baseline);
-        }
-    }
-    
-    // T1 (drivenT 초반 평균)
-    if (drivenTCh !== null) {
-        const data = filteredData.channels[`ch${drivenTCh}`];
-        if (data) {
-            const baseline = data.slice(0, Math.min(1000, data.length));
-            measurements.t1_avg = average(baseline);
         }
     }
     
@@ -1099,17 +1127,46 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps)
         }
     }
     
-    // T4 (drivenT의 시험시간 구간 평균)
-    if (drivenTCh !== null && testTimeResult.startIndex !== null) {
-        const data = filteredData.channels[`ch${drivenTCh}`];
-        if (data) {
-            const testRegion = data.slice(testTimeResult.startIndex, testTimeResult.endIndex);
-            measurements.t4_avg = average(testRegion);
+    // 시험 시작/끝 시간 (ms) 계산
+    let resolvedTestTimeStartMs = testTimeStartMs;
+    if (resolvedTestTimeStartMs === null && testTimeResult.startIndex !== null) {
+        resolvedTestTimeStartMs = (testTimeResult.startIndex / fps * 1000) + timeOffsetStartMs;
+    }
+    if (resolvedTestTimeStartMs !== null) {
+        measurements.test_time_start = resolvedTestTimeStartMs;
+        if (testTimeResult.testTime !== null) {
+            measurements.test_time_end = resolvedTestTimeStartMs + testTimeResult.testTime;
         }
     }
     
+    // driven7/8, model front 시간 계산
+    const offsetSec = (timeOffsetStartMs || 0) / 1000;
+    const driven7TimeSec = driven7Index !== null ? (driven7Index / fps) + offsetSec : null;
+    const driven8TimeSec = driven8Index !== null ? (driven8Index / fps) + offsetSec : null;
+    const modelFrontTimeSec = modelFrontIndex !== null ? (modelFrontIndex / fps) + offsetSec : null;
+    
+    if (driven8TimeSec !== null) {
+        measurements.second_diaphragm_rupture = driven8TimeSec * 1000;
+    }
+    if (modelFrontTimeSec !== null) {
+        measurements.model_front_time = modelFrontTimeSec * 1000;
+    }
+    
     // shock_speed 계산 (driven7과 driven8 사이 거리 / 시간차)
-    // TODO: 센서 간 거리 정보 필요
+    if (driven7TimeSec !== null && driven8TimeSec !== null) {
+        const deltaT = driven8TimeSec - driven7TimeSec;
+        if (deltaT > 0) {
+            measurements.shock_speed = distanceMeters / deltaT;
+        }
+    }
+    
+    // output_delay_time, output_ready_time
+    if (modelFrontTimeSec !== null && driven8TimeSec !== null) {
+        measurements.output_delay_time = (modelFrontTimeSec - driven8TimeSec) * 1000;
+    }
+    if (resolvedTestTimeStartMs !== null && driven8TimeSec !== null) {
+        measurements.output_ready_time = resolvedTestTimeStartMs - (driven8TimeSec * 1000);
+    }
     
     return measurements;
 }

@@ -330,6 +330,11 @@ function createSummarySheet() {
         ['충격파 속도 [m/s]', measurements.shock_speed],
         ['Output Delay Time [ms]', measurements.output_delay_time],
         ['Output Ready Time [ms]', measurements.output_ready_time],
+        ['Test Time Start [ms]', measurements.test_time_start],
+        ['Test Time End [ms]', measurements.test_time_end],
+        ['First Diaphragm Rupture [ms]', measurements.first_diaphragm_rupture],
+        ['Second Diaphragm Rupture [ms]', measurements.second_diaphragm_rupture],
+        ['Model Front Time [ms]', measurements.model_front_time],
     ];
     
     return summary;

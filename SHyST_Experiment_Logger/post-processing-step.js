@@ -141,9 +141,12 @@ async function processDataStep2() {
         // Step 5: Driven 압력 상승 감지
         const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
         const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
+        const detectModelFront = document.getElementById('detect-model-front').checked;
+        const modelFrontChannel = detectModelFront ? findChannelByDescription(uploadedDAQConnection, 'model front') : null;
         
         let driven7Index = null;
         let driven8Index = null;
+        let modelFrontIndex = null;
         
         if (driven7Channel !== null) {
             driven7Index = findPressureRise(filteredData.channels[`ch${driven7Channel}`], FPS);
@@ -153,7 +156,11 @@ async function processDataStep2() {
             driven8Index = findPressureRise(filteredData.channels[`ch${driven8Channel}`], FPS);
         }
         
-        console.log('Driven 압력 상승:', {driven7Index, driven8Index});
+        if (modelFrontChannel !== null) {
+            modelFrontIndex = findPressureRise(filteredData.channels[`ch${modelFrontChannel}`], FPS);
+        }
+        
+        console.log('Driven 압력 상승:', {driven7Index, driven8Index, modelFrontIndex});
         
         // Step 6: 시험시간 (수동 입력값 사용)
         updateProgress(50, '2/3 시험시간 설정 중...');
@@ -171,7 +178,17 @@ async function processDataStep2() {
         
         // Step 7: 측정값 계산
         updateProgress(80, '3/3 측정값 계산 중...');
-        const measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS);
+        const t1FromBefore = currentExperiment?.before?.shystSetting?.drivenTemp ?? currentExperiment?.before?.shystSetting?.airTemp ?? null;
+        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+        const measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS, {
+            driverIndex: step1Results.driverIndex ?? null,
+            driven7Index,
+            driven8Index,
+            modelFrontIndex,
+            timeOffsetStartMs: sliceStartMs,
+            testTimeStartMs: testStartMs,
+            t1FromBefore
+        });
         console.log('✅ 측정값 계산 완료:', measurements);
         
         // 결과 저장
@@ -180,6 +197,10 @@ async function processDataStep2() {
             convertedData: step1Results.convertedData,
             filteredData: filteredData,
             measurements: measurements,
+            driverIndex: step1Results.driverIndex ?? null,
+            driven7Index,
+            driven8Index,
+            modelFrontIndex,
             testTimeResult: testTimeResult
         };
         
@@ -245,26 +266,12 @@ function drawFilteredDataGraph(filteredData, daqConnection) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // 그래프 영역
-    const margin = {left: 80, right: 40, top: 40, bottom: 60};
+    const margin = {left: 90, right: 90, top: 40, bottom: 70};
     const width = canvas.width - margin.left - margin.right;
     const height = canvas.height - margin.top - margin.bottom;
     
-    // 시간 축 (-1ms ~ 30ms)
-    const numSamples = filteredData.numSamples;
-    const timeData = Array.from({length: numSamples}, (_, i) => -1 + (i / numSamples) * 31);
-    
-    // 모든 채널의 데이터 범위 계산 (대용량 안전)
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    
-    Object.values(filteredData.channels).forEach(data => {
-        const stats = arrayMinMax(data);
-        if (stats.min === null || stats.max === null) return;
-        if (stats.min < yMin) yMin = stats.min;
-        if (stats.max > yMax) yMax = stats.max;
-    });
-    
-    if (!isFinite(yMin) || !isFinite(yMax)) {
+    const channelKeys = Object.keys(filteredData.channels);
+    if (channelKeys.length === 0) {
         ctx.fillStyle = '#666';
         ctx.font = '16px Arial';
         ctx.textAlign = 'center';
@@ -272,7 +279,50 @@ function drawFilteredDataGraph(filteredData, daqConnection) {
         return;
     }
     
-    const yRange = yMax - yMin || 1;
+    const pressureChannels = [];
+    const tempChannels = [];
+    
+    channelKeys.forEach(channelKey => {
+        const portNum = parseInt(channelKey.replace('ch', ''), 10);
+        const config = daqConnection.find(c => c.channel === portNum);
+        if (isTemperatureConfig(config)) {
+            tempChannels.push(channelKey);
+        } else {
+            pressureChannels.push(channelKey);
+        }
+    });
+    
+    let pressureMin = Infinity;
+    let pressureMax = -Infinity;
+    pressureChannels.forEach(key => {
+        const stats = arrayMinMax(filteredData.channels[key]);
+        if (stats.min === null || stats.max === null) return;
+        if (stats.min < pressureMin) pressureMin = stats.min;
+        if (stats.max > pressureMax) pressureMax = stats.max;
+    });
+    
+    let tempMin = Infinity;
+    let tempMax = -Infinity;
+    tempChannels.forEach(key => {
+        const stats = arrayMinMax(filteredData.channels[key]);
+        if (stats.min === null || stats.max === null) return;
+        if (stats.min < tempMin) tempMin = stats.min;
+        if (stats.max > tempMax) tempMax = stats.max;
+    });
+    
+    const hasPressure = isFinite(pressureMin) && isFinite(pressureMax);
+    const hasTemp = isFinite(tempMin) && isFinite(tempMax);
+    
+    if (!hasPressure && !hasTemp) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const pressureRange = (pressureMax - pressureMin) || 1;
+    const tempRange = (tempMax - tempMin) || 1;
     
     // 축 그리기
     ctx.strokeStyle = '#000';
@@ -283,64 +333,102 @@ function drawFilteredDataGraph(filteredData, daqConnection) {
     ctx.lineTo(margin.left + width, margin.top + height);
     ctx.stroke();
     
-    // X축 레이블 (시간)
+    if (hasTemp) {
+        ctx.beginPath();
+        ctx.moveTo(margin.left + width, margin.top);
+        ctx.lineTo(margin.left + width, margin.top + height);
+        ctx.stroke();
+    }
+    
+    // X축 눈금 (1ms 간격)
     ctx.fillStyle = '#000';
-    ctx.font = '12px Arial';
+    ctx.font = '10px Arial';
     ctx.textAlign = 'center';
-    for (let i = 0; i <= 30; i += 5) {
+    for (let i = 0; i <= 30; i += 1) {
         const x = margin.left + ((i + 1) / 31) * width;
         const y = margin.top + height;
-        ctx.fillText(`${i}`, x, y + 20);
+        ctx.fillText(`${i}`, x, y + 18);
         
-        // 그리드
-        ctx.strokeStyle = '#ddd';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, margin.top);
-        ctx.lineTo(x, y);
-        ctx.stroke();
+        // 주요 그리드 (5ms)
+        if (i % 5 === 0) {
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }
     }
+    ctx.font = '12px Arial';
     ctx.fillText('Time (ms)', margin.left + width / 2, canvas.height - 10);
     
-    // Y축 레이블
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 5; i++) {
-        const value = yMin + (yRange * i / 5);
-        const y = margin.top + height - (height * i / 5);
-        ctx.fillText(value.toFixed(2), margin.left - 10, y + 5);
+    // Y축 (압력)
+    if (hasPressure) {
+        ctx.textAlign = 'right';
+        ctx.font = '11px Arial';
+        for (let i = 0; i <= 5; i++) {
+            const value = pressureMin + (pressureRange * i / 5);
+            const y = margin.top + height - (height * i / 5);
+            ctx.fillText(value.toFixed(2), margin.left - 10, y + 5);
+            
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(margin.left, y);
+            ctx.lineTo(margin.left + width, y);
+            ctx.stroke();
+        }
         
-        // 그리드
-        ctx.strokeStyle = '#ddd';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(margin.left, y);
-        ctx.lineTo(margin.left + width, y);
-        ctx.stroke();
+        ctx.save();
+        ctx.translate(20, margin.top + height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.font = 'bold 12px Arial';
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        ctx.fillText('Pressure [bar]', 0, 0);
+        ctx.restore();
     }
     
-    // 채널 데이터 그리기 (최대 8개만)
-    const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
-    const channelKeys = Object.keys(filteredData.channels).slice(0, 8);
+    // Y축 (온도)
+    if (hasTemp) {
+        ctx.textAlign = 'left';
+        ctx.font = '11px Arial';
+        for (let i = 0; i <= 5; i++) {
+            const value = tempMin + (tempRange * i / 5);
+            const y = margin.top + height - (height * i / 5);
+            ctx.fillText(value.toFixed(1), margin.left + width + 10, y + 5);
+        }
+        
+        ctx.save();
+        ctx.translate(canvas.width - 20, margin.top + height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.font = 'bold 12px Arial';
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        ctx.fillText('Temperature [K]', 0, 0);
+        ctx.restore();
+    }
     
+    // 채널 데이터 그리기
+    const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#7f8c8d', '#8e44ad'];
     channelKeys.forEach((channelKey, idx) => {
         const data = filteredData.channels[channelKey];
-        const color = colors[idx % colors.length];
+        const isTemp = tempChannels.includes(channelKey);
+        const yMin = isTemp ? tempMin : pressureMin;
+        const yRange = isTemp ? tempRange : pressureRange;
+        if (!isFinite(yMin) || !isFinite(yRange)) return;
         
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = colors[idx % colors.length];
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         
+        const denom = Math.max(1, data.length - 1);
         for (let i = 0; i < data.length; i++) {
-            const x = margin.left + (timeData[i] + 1) / 31 * width;
+            const x = margin.left + (i / denom) * width;
             const y = margin.top + height - ((data[i] - yMin) / yRange) * height;
-            
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
         }
-        
         ctx.stroke();
     });
     
@@ -353,13 +441,21 @@ function drawFilteredDataGraph(filteredData, daqConnection) {
         const label = config ? `${portNum}: ${config.description}` : `${portNum}`;
         
         const x = margin.left + width + 10;
-        const y = margin.top + idx * 20;
+        const y = margin.top + idx * 18;
         
         ctx.fillStyle = colors[idx % colors.length];
         ctx.fillRect(x, y - 8, 15, 3);
         ctx.fillStyle = '#000';
         ctx.fillText(label, x + 20, y);
     });
+}
+
+function isTemperatureConfig(config) {
+    if (!config) return false;
+    const type = String(config.type || '').toLowerCase();
+    const pn = String(config.partNumber || config.PN || '').toLowerCase();
+    const cal = String(config.calibration || '').toLowerCase();
+    return type === 't' || pn.includes('thermocouple') || cal === 'e' || cal === 'av+b';
 }
 
 function drawChannelGraphs(filteredData, daqConnection) {
@@ -369,12 +465,14 @@ function drawChannelGraphs(filteredData, daqConnection) {
     
     drawSingleChannelGraph('driver-preview', filteredData.channels[`ch${driverCh}`], {
         title: 'Driver',
-        color: '#2ecc71'
+        color: '#2ecc71',
+        yLabel: 'Pressure [bar]'
     });
     
     drawSingleChannelGraph('driven7-preview', filteredData.channels[`ch${driven7Ch}`], {
         title: 'Driven 7',
-        color: '#e74c3c'
+        color: '#e74c3c',
+        yLabel: 'Pressure [bar]'
     });
     
     drawDriven8Graph(filteredData, daqConnection, null);
@@ -389,7 +487,8 @@ function drawDriven8Graph(filteredData, daqConnection, testTimeResult) {
         color: '#3498db',
         showTestLines: true,
         testTimeResult: testTimeResult,
-        fps: step1Results.FPS
+        fps: step1Results.FPS,
+        yLabel: 'Pressure [bar]'
     });
 }
 
@@ -436,23 +535,36 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
     ctx.lineTo(margin.left + width, margin.top + height);
     ctx.stroke();
     
-    // X축 레이블
+    // X축 레이블 (1ms 간격)
     ctx.fillStyle = '#000';
-    ctx.font = '12px Arial';
+    ctx.font = '10px Arial';
     ctx.textAlign = 'center';
-    for (let i = 0; i <= 30; i += 5) {
+    for (let i = 0; i <= 30; i += 1) {
         const x = margin.left + ((i + 1) / 31) * width;
         const y = margin.top + height;
         ctx.fillText(`${i}`, x, y + 18);
     }
+    ctx.font = '12px Arial';
     ctx.fillText('Time (ms)', margin.left + width / 2, canvas.height - 10);
     
     // Y축 레이블
     ctx.textAlign = 'right';
+    ctx.font = '11px Arial';
     for (let i = 0; i <= 4; i++) {
         const value = yMin + (yRange * i / 4);
         const y = margin.top + height - (height * i / 4);
         ctx.fillText(value.toFixed(2), margin.left - 10, y + 5);
+    }
+    
+    if (options.yLabel) {
+        ctx.save();
+        ctx.translate(20, margin.top + height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.font = 'bold 12px Arial';
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        ctx.fillText(options.yLabel, 0, 0);
+        ctx.restore();
     }
     
     // 데이터 플롯
@@ -561,7 +673,7 @@ function drawRmsRatioGraph(filteredData, daqConnection, testTimeResult) {
     const rmsValues = rmsPoints.map(p => p.rmsPercent);
     const rmsStats = arrayMinMax(rmsValues);
     const xMin = 0;
-    const xMax = Math.max(rmsStats.max || 1, 5);
+    const xMax = Math.max(Math.ceil(rmsStats.max || 1), 5);
     const yMin = 0;
     const yMax = maxWindowMs;
     
@@ -576,23 +688,33 @@ function drawRmsRatioGraph(filteredData, daqConnection, testTimeResult) {
     
     // X축 레이블 (RMS %)
     ctx.fillStyle = '#000';
-    ctx.font = '12px Arial';
+    ctx.font = '10px Arial';
     ctx.textAlign = 'center';
-    for (let i = 0; i <= 5; i++) {
-        const value = xMin + (xMax - xMin) * (i / 5);
-        const x = margin.left + width * (i / 5);
+    for (let i = xMin; i <= xMax; i += 1) {
+        const value = i;
+        const x = margin.left + ((value - xMin) / (xMax - xMin)) * width;
         const y = margin.top + height;
         ctx.fillText(value.toFixed(1), x, y + 20);
     }
+    ctx.font = '12px Arial';
     ctx.fillText('RMS / Mean [%]', margin.left + width / 2, canvas.height - 10);
     
     // Y축 레이블 (ms)
     ctx.textAlign = 'right';
-    for (let i = 0; i <= 5; i++) {
-        const value = yMin + (yMax - yMin) * (i / 5);
-        const y = margin.top + height - height * (i / 5);
+    for (let i = yMin; i <= yMax; i += 1) {
+        const value = i;
+        const y = margin.top + height - ((value - yMin) / (yMax - yMin)) * height;
         ctx.fillText(value.toFixed(1), margin.left - 10, y + 5);
     }
+    
+    ctx.save();
+    ctx.translate(20, margin.top + height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#333';
+    ctx.textAlign = 'center';
+    ctx.fillText('Test time length [ms]', 0, 0);
+    ctx.restore();
     
     // 그래프
     ctx.strokeStyle = '#9b59b6';
