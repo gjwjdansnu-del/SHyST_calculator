@@ -972,52 +972,28 @@ function applyAllFilters(convertedData, daqConnection, fps) {
 // ============================================
 
 function findPressureRise(data, fps, options = {}) {
-    // Python 코드의 find_change_index 함수 방식 그대로 구현
-    // direction='increase', window_size=1, gradient_check_size=10000
+    // 압력 임계값 기반 단순 감지
     if (!data || data.length === 0) return null;
     
     const {
         startIndex = 0,
-        thresholdCoeff = 5  // Python 기본값
+        pressureThreshold = 0.1  // bar 단위
     } = options;
     const source = data.slice(Math.max(0, startIndex));
     
-    console.log('압력 상승 감지 시작:', data.length, '샘플', '검색 시작:', startIndex);
+    console.log(`압력 상승 감지 시작: ${data.length} 샘플, 검색 시작: ${startIndex}, 임계값: ${pressureThreshold} bar`);
     
-    // 1. 이동평균 필터 (window_size=1, 즉 필터 없음)
-    const filtered = source; // window_size=1이므로 원본 그대로
-    
-    // 2. 초반 10000개 기울기 계산
-    const gradientCheckSize = Math.min(10000, filtered.length - 1);
-    const initialData = filtered.slice(0, gradientCheckSize + 1);
-    
-    const gradient = [];
-    for (let i = 1; i < initialData.length; i++) {
-        gradient.push(initialData[i] - initialData[i-1]);
-    }
-    
-    const gradStats = arrayMinMax(gradient);
-    const maxGradient = gradStats.max ?? 0;
-    const minGradient = gradStats.min ?? 0;
-    
-    // 3. 임계값: 최대/최소 기울기 절댓값의 5배 (Python과 동일)
-    const threshold = thresholdCoeff * Math.max(Math.abs(maxGradient), Math.abs(minGradient));
-    
-    console.log(`압력 상승 임계값: ${threshold.toFixed(6)} (계수: ${thresholdCoeff})`);
-    
-    // 4. 전체 기울기 계산 후 첫 번째 threshold 초과 지점 찾기
-    for (let i = 1; i < filtered.length; i++) {
-        const g = filtered[i] - filtered[i-1];
-        
-        if (g > threshold) {
-            const absoluteIndex = startIndex + (i - 1);
-            console.log(`✅ 압력 상승 감지: index=${absoluteIndex}, gradient=${g.toFixed(6)}, threshold=${threshold.toFixed(6)}`);
+    // 첫 번째로 임계값을 초과하는 지점 찾기
+    for (let i = 0; i < source.length; i++) {
+        if (source[i] >= pressureThreshold) {
+            const absoluteIndex = startIndex + i;
+            console.log(`✅ 압력 상승 감지: index=${absoluteIndex}, 압력=${source[i].toFixed(4)} bar, 임계값=${pressureThreshold} bar`);
             return absoluteIndex;
         }
     }
     
     // 못 찾으면 null
-    console.log('⚠️ 압력 상승을 찾을 수 없습니다. (threshold 초과 지점 없음)');
+    console.log(`⚠️ 압력 상승을 찾을 수 없습니다. (${pressureThreshold} bar 초과 지점 없음)`);
     return null;
 }
 

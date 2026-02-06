@@ -79,7 +79,16 @@ async function processDataStep1() {
         
         // 그래프 그리기
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
-        updateRiseThresholdValue();
+        
+        // 압력 임계값 슬라이더 범위 설정 (0 ~ 2*p1)
+        const p1_bar = currentExperiment?.after?.labviewLog?.p1_avg || 0.1;
+        const maxPressure = 2 * p1_bar;
+        const pressureSlider = document.getElementById('pressure-threshold-slider');
+        pressureSlider.max = maxPressure.toFixed(2);
+        pressureSlider.value = (p1_bar * 0.5).toFixed(2); // 초기값: 0.5*p1
+        document.getElementById('pressure-max-value').textContent = maxPressure.toFixed(2);
+        
+        updatePressureThresholdValue();
         const riseIndices = computeRiseIndices();
         drawFilteredDataGraph(filteredData, uploadedDAQConnection, riseIndices);
         drawChannelGraphs(filteredData, uploadedDAQConnection, riseIndices);
@@ -153,11 +162,14 @@ async function processDataStep2() {
         const riseSearchStartMs = 2;
         const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * FPS);
         
+        // 압력 임계값 가져오기
+        const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider').value);
+        
         if (driven7Channel !== null) {
             const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
             driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, {
                 startIndex: riseSearchStartIdx,
-                thresholdCoeff: 5  // Python 기본값
+                pressureThreshold: pressureThreshold
             }) : null;
         }
         
@@ -165,7 +177,7 @@ async function processDataStep2() {
             const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
             driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, {
                 startIndex: riseSearchStartIdx,
-                thresholdCoeff: 5  // Python 기본값
+                pressureThreshold: pressureThreshold
             }) : null;
         }
         
@@ -704,19 +716,19 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
     }
 }
 
-function updateRiseThresholdValue() {
-    const slider = document.getElementById('rise-threshold-slider');
-    const valueEl = document.getElementById('rise-threshold-value');
+function updatePressureThresholdValue() {
+    const slider = document.getElementById('pressure-threshold-slider');
+    const valueEl = document.getElementById('pressure-threshold-value');
     if (!slider || !valueEl) return;
-    const value = parseFloat(slider.value) || 4;
-    valueEl.textContent = value.toFixed(1);
+    const value = parseFloat(slider.value) || 0.1;
+    valueEl.textContent = value.toFixed(2);
 }
 
 function computeRiseIndices() {
     if (!step1Results.filteredData || !uploadedDAQConnection) {
         return { driven7Index: null, driven8Index: null };
     }
-    const coeff = parseFloat(document.getElementById('rise-threshold-slider')?.value) || 4;
+    const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
     const riseSearchStartMs = 2;
     const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * step1Results.FPS);
     const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
@@ -727,23 +739,19 @@ function computeRiseIndices() {
     
     const driven7Index = driven7Slice ? findPressureRise(driven7Slice, step1Results.FPS, {
         startIndex: riseSearchStartIdx,
-        thresholdCoeff: coeff,
-        stdCoeff: coeff,
-        sustainMs: 0.5
+        pressureThreshold: pressureThreshold
     }) : null;
     
     const driven8Index = driven8Slice ? findPressureRise(driven8Slice, step1Results.FPS, {
         startIndex: riseSearchStartIdx,
-        thresholdCoeff: coeff,
-        stdCoeff: coeff,
-        sustainMs: 0.3
+        pressureThreshold: pressureThreshold
     }) : null;
     
     return { driven7Index, driven8Index };
 }
 
-function updateRiseThreshold() {
-    updateRiseThresholdValue();
+function updatePressureThreshold() {
+    updatePressureThresholdValue();
     if (!step1Results.filteredData) return;
     
     const riseIndices = computeRiseIndices();
