@@ -164,6 +164,88 @@ function calcHOverRT_NASA(T, gasType) {
     return a[0] + a[1]*T/2 + a[2]*T2/3 + a[3]*T3/4 + a[4]*T4/5 + a[5]/T;
 }
 
+// NASA 다항식으로 s°/R 계산 (무차원 엔트로피, 표준 상태)
+function calcSOverR_NASA(T, gasType) {
+    const normalizedType = (gasType || '').toString().toLowerCase().trim();
+    let gasKey = 'air';
+    
+    if (normalizedType.includes('air')) {
+        gasKey = 'air';
+    } else if (normalizedType.includes('co2') || normalizedType.includes('co₂')) {
+        gasKey = 'co2';
+    }
+    
+    const coeffs = NASA_COEFFS[gasKey];
+    if (!coeffs) return null;
+    
+    const a = (T < 1000) ? coeffs.low.a : coeffs.high.a;
+    
+    // s°/R = a1*ln(T) + a2*T + a3*T²/2 + a4*T³/3 + a5*T⁴/4 + a7
+    const T2 = T * T;
+    const T3 = T2 * T;
+    const T4 = T3 * T;
+    
+    return a[0]*Math.log(T) + a[1]*T + a[2]*T2/2 + a[3]*T3/3 + a[4]*T4/4 + a[6];
+}
+
+// 엔트로피 계산 [J/kg·K] (NASA 다항식)
+function calcEntropy(T, p, gasType, mw, p_ref = 101325) {
+    const normalizedType = (gasType || '').toString().toLowerCase().trim();
+    let gasKey = 'air';
+    
+    if (normalizedType.includes('air')) {
+        gasKey = 'air';
+    } else if (normalizedType.includes('co2') || normalizedType.includes('co₂')) {
+        gasKey = 'co2';
+    }
+    
+    const R_specific = R_universal / mw;
+    const sOverR = calcSOverR_NASA(T, gasKey);
+    
+    if (sOverR === null || !isFinite(sOverR)) {
+        // NASA 계수가 없으면 간단한 근사
+        const cp = calcCpFromT(T, gasType, mw);
+        return cp * Math.log(T) - R_specific * Math.log(p / p_ref);
+    }
+    
+    // s(T, p) = R × s°(T) - R × ln(p/p_ref)
+    return R_specific * (sOverR - Math.log(p / p_ref));
+}
+
+// 엔탈피로부터 온도 역산 (Newton-Raphson)
+function calcTFromH(h_target, gasType, mw, T_guess = 300, X_He = null) {
+    const isMix = X_He !== null;
+    let T = T_guess;
+    const tol = 1e-6;
+    const maxIter = 20;
+    
+    for (let iter = 0; iter < maxIter; iter++) {
+        const h = isMix ? calcEnthalpy_mix(T, X_He, mw) : calcEnthalpy(T, gasType, mw);
+        const error = h - h_target;
+        
+        if (Math.abs(error / h_target) < tol) {
+            return T;
+        }
+        
+        // 수치 미분
+        const delta = 1e-3;
+        const h_plus = isMix ? calcEnthalpy_mix(T + delta, X_He, mw) : calcEnthalpy(T + delta, gasType, mw);
+        const dh_dT = (h_plus - h) / delta;
+        
+        if (Math.abs(dh_dT) < 1e-10) {
+            console.warn('calcTFromH: dh_dT too small');
+            break;
+        }
+        
+        T = T - error / dh_dT;
+        
+        // 온도 범위 제한
+        T = Math.max(200, Math.min(6000, T));
+    }
+    
+    return T;
+}
+
 // 온도에 따른 cp 계산 [J/kg·K] (NASA 다항식)
 function calcCpFromT(T, gasType, mw) {
     // 대소문자 무시 및 공백 제거
@@ -491,7 +573,7 @@ function findMachFromP4(targetP4, p1, t1, t4, drivenProps, driverProps, initialM
 }
 
 
-// State 7 (노즐 팽창 후 상태) 계산 - 등엔트로피 과정 (온도 의존 gamma 적용)
+// State 7 (노즐 팽창 후 상태) 계산 - 등엔트로피 과정 (보존 법칙 기반)
 function calcState7(state5, M7, drivenProps, drivenGas) {
     const isMix = drivenProps.X_He !== undefined;
     const mw = drivenProps.mw;
@@ -500,37 +582,31 @@ function calcState7(state5, M7, drivenProps, drivenGas) {
     // State 5가 정체 상태 (u5 = 0)
     const T0 = state5.t;  // 토탈 온도
     const P0 = state5.p;  // 토탈 압력
+    const s0 = state5.s;  // 엔트로피
     
-    // 등엔트로피 팽창: 반복적으로 T7 계산
-    // h0 = h7 + 0.5 * u7^2
-    const h0 = isMix ? calcEnthalpy_mix(T0, drivenProps.X_He, mw) : calcEnthalpy(T0, drivenGas, mw);
+    // 토탈 엔탈피 (정체 상태)
+    const h0_total = isMix ? calcEnthalpy_mix(T0, drivenProps.X_He, mw) : calcEnthalpy(T0, drivenGas, mw);
     
     // 초기 추정 (일정 gamma 가정)
     const g5 = isMix ? calcGammaFromT_mix(T0, drivenProps.X_He) : calcGammaFromT(T0, drivenGas);
     let T7 = T0 / (1 + (g5 - 1) / 2 * M7 * M7);
     
-    // 반복 계산
+    // 반복 계산 (토탈 엔탈피 보존)
     for (let iter = 0; iter < 10; iter++) {
         const g7 = isMix ? calcGammaFromT_mix(T7, drivenProps.X_He) : calcGammaFromT(T7, drivenGas);
         const a7 = Math.sqrt(g7 * R * T7);
         const u7 = M7 * a7;
         
-        // 에너지 보존: h0 = h7 + 0.5 * u7^2
-        const h7_target = h0 - 0.5 * u7 * u7;
+        // 토탈 엔탈피 보존: h0_total = h7 + 0.5 * u7^2
+        const h7_static_target = h0_total - 0.5 * u7 * u7;
         
-        if (h7_target <= 0) {
-            console.error('Invalid h7_target:', h7_target, 'h0:', h0, 'u7:', u7);
+        if (h7_static_target <= 0) {
+            console.error('Invalid h7_static_target:', h7_static_target, 'h0_total:', h0_total, 'u7:', u7);
             break;
         }
         
-        const cp7 = isMix ? (g7 / (g7 - 1) * R) : calcCpFromT(T7, drivenGas, mw);
-        
-        if (!isFinite(cp7) || cp7 <= 0) {
-            console.error('Invalid cp7:', cp7);
-            break;
-        }
-        
-        const T7_new = h7_target / cp7;
+        // h로부터 T 역산
+        const T7_new = calcTFromH(h7_static_target, drivenGas, mw, T7, isMix ? drivenProps.X_He : null);
         
         if (!isFinite(T7_new) || T7_new <= 0 || T7_new > T0) {
             console.error('Invalid T7_new:', T7_new);
@@ -556,17 +632,28 @@ function calcState7(state5, M7, drivenProps, drivenGas) {
     const a7 = Math.sqrt(g7 * R * T7);
     const u7 = M7 * a7;
     
-    // 등엔트로피 관계식으로 압력 계산
-    // P7/P0 = (T7/T0)^(γ/(γ-1)) (평균 gamma 사용)
-    const g_avg = (g5 + g7) / 2;
-    const exponent = g_avg / (g_avg - 1);
+    // 엔트로피 보존으로 압력 계산: s(T7, P7) = s0
+    // s0 = s7 → P7 계산
+    let P7 = P0 * Math.pow(T7 / T0, g7 / (g7 - 1));  // 초기 추정
     
-    if (!isFinite(exponent) || exponent < 0) {
-        console.error('Invalid exponent:', exponent, 'g_avg:', g_avg);
-        return null;
+    for (let iter = 0; iter < 10; iter++) {
+        const normalizedType = (drivenGas || '').toString().toLowerCase().trim();
+        const gasKey = normalizedType.includes('co2') ? 'co2' : 'air';
+        const s7_calc = calcEntropy(T7, P7, gasKey, mw);
+        const error = s7_calc - s0;
+        
+        if (Math.abs(error / s0) < 1e-8) break;
+        
+        // 수치 미분
+        const delta = P7 * 1e-6;
+        const s7_plus = calcEntropy(T7, P7 + delta, gasKey, mw);
+        const ds_dP = (s7_plus - s7_calc) / delta;
+        
+        if (Math.abs(ds_dP) > 1e-15) {
+            P7 = P7 - error / ds_dP;
+            P7 = Math.max(1, Math.min(P0, P7));
+        }
     }
-    
-    const P7 = P0 * Math.pow(T7 / T0, exponent);
     
     if (!isFinite(P7) || P7 <= 0) {
         console.error('Invalid P7:', P7);
@@ -574,6 +661,12 @@ function calcState7(state5, M7, drivenProps, drivenGas) {
     }
     
     const rho7 = P7 / (R * T7);
+    const cp7 = isMix ? calcCpFromT_mix(T7, drivenProps.X_He, mw) : calcCpFromT(T7, drivenGas, mw);
+    const h7_static = cp7 * T7;
+    const h7_total = h7_static + 0.5 * u7 * u7;
+    const normalizedType = (drivenGas || '').toString().toLowerCase().trim();
+    const gasKey = normalizedType.includes('co2') ? 'co2' : 'air';
+    const s7 = calcEntropy(T7, P7, gasKey, mw);
     
     // 점성계수 (서덜랜드 법칙)
     const mu = calcViscosity(T7, drivenGas);
@@ -587,13 +680,6 @@ function calcState7(state5, M7, drivenProps, drivenGas) {
     const Re_unit = rho7 * u7 / mu;
     const Re_unit_e6 = Re_unit / 1e6;  // ×10^6/m 단위
     
-    // 토탈 엔탈피 H0 [J/kg]
-    const H0 = h0;
-    const H0_MJ = H0 / 1e6;  // MJ/kg 단위
-    
-    // cp 계산
-    const cp7 = isMix ? calcCpFromT_mix(T7, drivenProps.X_He, mw) : calcCpFromT(T7, drivenGas, mw);
-    
     return {
         M: M7,
         p: P7,
@@ -601,15 +687,15 @@ function calcState7(state5, M7, drivenProps, drivenGas) {
         rho: rho7,
         a: a7,
         u: u7,
-        mu: mu,
-        Re_unit: Re_unit,
-        Re_unit_e6: Re_unit_e6,
-        H0: H0,
-        H0_MJ: H0_MJ,
-        T0: T0,
-        P0: P0,
+        h: h7_static,
+        h_total: h7_total / 1e6,  // MJ/kg
+        s: s7,
+        R: R,
         gamma: g7,
-        cp: cp7
+        cp: cp7,
+        V: u7,
+        mu: mu,
+        Re_unit: Re_unit_e6  // 10^6/m
     };
 }
 
@@ -692,106 +778,161 @@ function calcShockTube(M, p1, t1, p4, t4, drivenProps, driverProps, drivenGas = 
     };
 }
 
-// 입사 충격파 계산 (온도 의존 gamma 고려)
-// Rankine-Hugoniot 관계식 사용 (반복 계산)
+// 입사 충격파 계산 (보존 법칙 기반, 밀도비 η 반복)
 function calcIncidentShock(M, p1, t1, gasType, mw, R, X_He = null) {
     const isMix = X_He !== null;
     const g1 = isMix ? calcGammaFromT_mix(t1, X_He) : calcGammaFromT(t1, gasType);
     const rho1 = p1 / (R * t1);
     const a1 = Math.sqrt(g1 * R * t1);
+    const W = M * a1;  // 충격파 속도
     
-    // 초기 추정 (일정 gamma 가정)
+    const h1 = isMix ? calcEnthalpy_mix(t1, X_He, mw) : calcEnthalpy(t1, gasType, mw);
+    
+    // 초기 추정 (Ideal Gas)
     const gp1 = g1 + 1;
     const gm1 = g1 - 1;
-    let p2 = p1 * (1 + (2 * g1 / gp1) * (M * M - 1));
-    let t2 = t1 * (p2 / p1) * ((gp1 / gm1 + p2 / p1) / (1 + gp1 / gm1 * p2 / p1));
+    const p2_ideal = p1 * (1 + (2 * g1 / gp1) * (M * M - 1));
+    const rho2_rho1_ideal = (1 + (gp1 / gm1) * (p2_ideal / p1)) / (gp1 / gm1 + p2_ideal / p1);
     
-    // 반복 계산 (온도 의존 gamma 고려)
-    for (let iter = 0; iter < 5; iter++) {
-        const g2 = isMix ? calcGammaFromT_mix(t2, X_He) : calcGammaFromT(t2, gasType);
-        const gp2 = g2 + 1;
-        const gm2 = g2 - 1;
+    let eta = rho2_rho1_ideal;  // 밀도비 η = ρ₂/ρ₁
+    
+    const tol = 1e-8;
+    const maxIter = 20;
+    
+    for (let iter = 0; iter < maxIter; iter++) {
+        // 질량 보존: u₂ = W × (1 - 1/η)
+        const u2 = W * (1 - 1/eta);
         
-        // Rankine-Hugoniot 관계식 (평균 gamma 사용)
-        const g_avg = (g1 + g2) / 2;
-        const gp_avg = g_avg + 1;
-        const gm_avg = g_avg - 1;
+        // 운동량 보존: p₂ = p₁ + ρ₁ × W² × (1 - 1/η)
+        const p2 = p1 + rho1 * W * W * (1 - 1/eta);
         
-        const p2_new = p1 * (1 + (2 * g_avg / gp_avg) * (M * M - 1));
-        const t2_new = t1 * (p2_new / p1) * ((gp_avg / gm_avg + p2_new / p1) / (1 + gp_avg / gm_avg * p2_new / p1));
+        // 에너지 보존: h₂ = h₁ + 0.5×W² - 0.5×(W-u₂)²
+        const h2_needed = h1 + 0.5 * W * W - 0.5 * (W - u2) * (W - u2);
         
-        if (Math.abs(t2_new - t2) / t2 < 1e-6) {
-            t2 = t2_new;
-            p2 = p2_new;
+        // h₂로부터 T₂ 역산
+        const t2 = calcTFromH(h2_needed, gasType, mw, t1 * 1.5, X_He);
+        
+        // 상태 방정식: ρ₂ = p₂ / (R × T₂)
+        const rho2_calc = p2 / (R * t2);
+        const eta_calc = rho2_calc / rho1;
+        
+        // 오차 계산
+        const error = eta - eta_calc;
+        
+        if (Math.abs(error / eta) < tol) {
+            // 수렴
+            return { p: p2, t: t2, rho: rho2_calc, u: u2 };
+        }
+        
+        // 수치 미분 (Jacobian)
+        const delta = eta * 1e-6;
+        const eta_plus = eta + delta;
+        const u2_plus = W * (1 - 1/eta_plus);
+        const p2_plus = p1 + rho1 * W * W * (1 - 1/eta_plus);
+        const h2_plus = h1 + 0.5 * W * W - 0.5 * (W - u2_plus) * (W - u2_plus);
+        const t2_plus = calcTFromH(h2_plus, gasType, mw, t2, X_He);
+        const rho2_plus = p2_plus / (R * t2_plus);
+        const eta_calc_plus = rho2_plus / rho1;
+        const error_plus = eta_plus - eta_calc_plus;
+        
+        const derivative = (error_plus - error) / delta;
+        
+        if (Math.abs(derivative) < 1e-15) {
+            console.warn('calcIncidentShock: derivative too small');
             break;
         }
         
-        t2 = t2_new;
-        p2 = p2_new;
+        // Newton-Raphson 업데이트
+        eta = eta - error / derivative;
+        
+        // 물리적 범위 제한 (ρ₂/ρ₁ > 1)
+        eta = Math.max(1.01, Math.min(20, eta));
     }
     
-    const g2 = isMix ? calcGammaFromT_mix(t2, X_He) : calcGammaFromT(t2, gasType);
-    const gp2 = g2 + 1;
-    const gm2 = g2 - 1;
-    
-    const rho2_rho1 = (1 + (gp2 / gm2) * (p2 / p1)) / (gp2 / gm2 + p2 / p1);
-    const rho2 = rho2_rho1 * rho1;
-    
-    const a2 = Math.sqrt(g2 * R * t2);
-    const u2 = (a1 / g1) * ((p2 / p1) - 1) * Math.sqrt((2 * g1 / gp1) / ((p2 / p1) + gm1 / gp1));
+    // 수렴 실패 시 마지막 값 반환
+    const u2 = W * (1 - 1/eta);
+    const p2 = p1 + rho1 * W * W * (1 - 1/eta);
+    const h2_needed = h1 + 0.5 * W * W - 0.5 * (W - u2) * (W - u2);
+    const t2 = calcTFromH(h2_needed, gasType, mw, t1 * 1.5, X_He);
+    const rho2 = p2 / (R * t2);
     
     return { p: p2, t: t2, rho: rho2, u: u2 };
 }
 
-// 반사 충격파 계산 (온도 의존 gamma 고려)
-// State 2 → State 5
+// 반사 충격파 계산 (보존 법칙 기반, 충격파 속도 W_R 반복)
+// State 2 → State 5 (u5 = 0, 벽면 조건)
 function calcReflectedShock(p2, t2, rho2, u2, p2_p1, gasType, mw, R, X_He = null) {
     const isMix = X_He !== null;
     const g2 = isMix ? calcGammaFromT_mix(t2, X_He) : calcGammaFromT(t2, gasType);
+    const h2 = isMix ? calcEnthalpy_mix(t2, X_He, mw) : calcEnthalpy(t2, gasType, mw);
     
-    // 초기 추정 (일정 gamma 가정)
+    // 초기 추정 (Ideal Gas)
     const gp2 = g2 + 1;
     const gm2 = g2 - 1;
+    const p5_p2_ideal = ((3 * g2 - 1) * p2_p1 - gm2) / (gm2 * p2_p1 + gp2);
+    const p5_ideal = p5_p2_ideal * p2;
+    const t5_ideal = t2 * p5_p2_ideal * ((gp2 / gm2 + p5_p2_ideal) / (1 + gp2 / gm2 * p5_p2_ideal));
     
-    // 반사 충격파 공식: p5/p2 = ((3γ-1)·(p2/p1) - (γ-1)) / ((γ-1)·(p2/p1) + (γ+1))
-    let p5_p2 = ((3 * g2 - 1) * p2_p1 - gm2) / (gm2 * p2_p1 + gp2);
-    let p5 = p5_p2 * p2;
-    let t5 = t2 * p5_p2 * ((gp2 / gm2 + p5_p2) / (1 + gp2 / gm2 * p5_p2));
+    // W_R 초기 추정 (반사 충격파 속도, State 2 기준)
+    const a2 = Math.sqrt(g2 * R * t2);
+    let W_R = a2 * Math.sqrt(p5_ideal / p2);  // 대략적 추정
     
-    // 반복 계산 (온도 의존 gamma 고려)
-    for (let iter = 0; iter < 10; iter++) {
-        const g5 = isMix ? calcGammaFromT_mix(t5, X_He) : calcGammaFromT(t5, gasType);
-        const gp5 = g5 + 1;
-        const gm5 = g5 - 1;
+    const tol = 1e-8;
+    const maxIter = 20;
+    
+    for (let iter = 0; iter < maxIter; iter++) {
+        // 질량 보존: ρ₅ = ρ₂ × (W_R + u₂) / W_R
+        const rho5 = rho2 * (W_R + u2) / W_R;
         
-        // 평균 gamma 사용
-        const g_avg = (g2 + g5) / 2;
-        const gp_avg = g_avg + 1;
-        const gm_avg = g_avg - 1;
+        // 운동량 보존: p₅ = p₂ + ρ₂×(W_R+u₂)² - ρ₅×W_R²
+        const p5 = p2 + rho2 * (W_R + u2) * (W_R + u2) - rho5 * W_R * W_R;
         
-        // 반사 충격파 공식 재계산 (평균 gamma 사용)
-        const p5_p2_new = ((3 * g_avg - 1) * p2_p1 - gm_avg) / (gm_avg * p2_p1 + gp_avg);
-        const p5_new = p5_p2_new * p2;
-        const t5_new = t2 * p5_p2_new * ((gp_avg / gm_avg + p5_p2_new) / (1 + gp_avg / gm_avg * p5_p2_new));
+        // 에너지 보존: h₅ = h₂ + 0.5×(W_R+u₂)² - 0.5×W_R²
+        const h5_needed = h2 + 0.5 * (W_R + u2) * (W_R + u2) - 0.5 * W_R * W_R;
         
-        if (Math.abs(t5_new - t5) / t5 < 1e-6) {
-            t5 = t5_new;
-            p5 = p5_new;
-            p5_p2 = p5_p2_new;
+        // h₅로부터 T₅ 역산
+        const t5 = calcTFromH(h5_needed, gasType, mw, t2 * 1.5, X_He);
+        
+        // 상태 방정식: p₅_eos = ρ₅ × R × T₅
+        const p5_eos = rho5 * R * t5;
+        
+        // 오차 계산
+        const error = p5 - p5_eos;
+        
+        if (Math.abs(error / p5) < tol) {
+            // 수렴
+            return { p: p5, t: t5, rho: rho5 };
+        }
+        
+        // 수치 미분 (Jacobian)
+        const delta = W_R * 1e-6;
+        const W_R_plus = W_R + delta;
+        const rho5_plus = rho2 * (W_R_plus + u2) / W_R_plus;
+        const p5_plus = p2 + rho2 * (W_R_plus + u2) * (W_R_plus + u2) - rho5_plus * W_R_plus * W_R_plus;
+        const h5_plus = h2 + 0.5 * (W_R_plus + u2) * (W_R_plus + u2) - 0.5 * W_R_plus * W_R_plus;
+        const t5_plus = calcTFromH(h5_plus, gasType, mw, t5, X_He);
+        const p5_eos_plus = rho5_plus * R * t5_plus;
+        const error_plus = p5_plus - p5_eos_plus;
+        
+        const derivative = (error_plus - error) / delta;
+        
+        if (Math.abs(derivative) < 1e-10) {
+            console.warn('calcReflectedShock: derivative too small');
             break;
         }
         
-        t5 = t5_new;
-        p5 = p5_new;
-        p5_p2 = p5_p2_new;
+        // Newton-Raphson 업데이트
+        W_R = W_R - error / derivative;
+        
+        // 물리적 범위 제한 (W_R > 0)
+        W_R = Math.max(a2 * 0.1, Math.min(a2 * 10, W_R));
     }
     
-    const g5 = isMix ? calcGammaFromT_mix(t5, X_He) : calcGammaFromT(t5, gasType);
-    const gp5 = g5 + 1;
-    const gm5 = g5 - 1;
-    
-    const rho5_rho2 = (1 + (gp5 / gm5) * p5_p2) / (gp5 / gm5 + p5_p2);
-    const rho5 = rho5_rho2 * rho2;
+    // 수렴 실패 시 마지막 값 반환
+    const rho5 = rho2 * (W_R + u2) / W_R;
+    const p5 = p2 + rho2 * (W_R + u2) * (W_R + u2) - rho5 * W_R * W_R;
+    const h5_needed = h2 + 0.5 * (W_R + u2) * (W_R + u2) - 0.5 * W_R * W_R;
+    const t5 = calcTFromH(h5_needed, gasType, mw, t2 * 1.5, X_He);
     
     return { p: p5, t: t5, rho: rho5 };
 }

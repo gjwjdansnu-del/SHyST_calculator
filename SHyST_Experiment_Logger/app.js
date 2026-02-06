@@ -378,11 +378,15 @@ async function calculateFlowConditions() {
         const rho1 = p1 / (R1 * t1);
         const cp1 = isMix ? calcCpFromT_mix(t1, drivenProps.X_He, mw1) : calcCpFromT(t1, drivenGas, mw1);
         const h1 = cp1 * t1;
-        const s1 = cp1 * Math.log(t1) - R1 * Math.log(p1);
+        const s1 = calcEntropy(t1, p1, drivenGas, mw1);
+        const h1_total = h1;  // u1 = 0
+        const mu1 = calcViscosity(t1, drivenGas);
+        const Re_unit1 = 0;  // u1 = 0
         
         const stage1 = {
-            p: p1, t: t1, rho: rho1, u: 0, h: h1, R: R1,
-            gamma: g1, cp: cp1, a: a1, s: s1, V: 0, M: 0
+            p: p1, t: t1, rho: rho1, u: 0, h: h1, h_total: h1_total / 1e6, R: R1,
+            gamma: g1, cp: cp1, a: a1, s: s1, V: 0, M: 0,
+            mu: mu1, Re_unit: Re_unit1 / 1e6
         };
         
         // 충격파 마하수
@@ -394,11 +398,15 @@ async function calculateFlowConditions() {
         const cp2 = isMix ? calcCpFromT_mix(state2Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state2Raw.t, drivenGas, mw1);
         const a2 = Math.sqrt(g2 * R1 * state2Raw.t);
         const h2 = cp2 * state2Raw.t;
-        const s2 = cp2 * Math.log(state2Raw.t) - R1 * Math.log(state2Raw.p);
+        const s2 = calcEntropy(state2Raw.t, state2Raw.p, drivenGas, mw1);
+        const h2_total = h2 + 0.5 * state2Raw.u * state2Raw.u;
+        const mu2 = calcViscosity(state2Raw.t, drivenGas);
+        const Re_unit2 = (state2Raw.rho * state2Raw.u) / mu2;
         
         const stage2 = {
-            p: state2Raw.p, t: state2Raw.t, rho: state2Raw.rho, u: state2Raw.u, h: h2, R: R1,
-            gamma: g2, cp: cp2, a: a2, s: s2, V: state2Raw.u, M: state2Raw.u / a2
+            p: state2Raw.p, t: state2Raw.t, rho: state2Raw.rho, u: state2Raw.u, h: h2, h_total: h2_total / 1e6, R: R1,
+            gamma: g2, cp: cp2, a: a2, s: s2, V: state2Raw.u, M: state2Raw.u / a2,
+            mu: mu2, Re_unit: Re_unit2 / 1e6
         };
         
         // Stage 5: 반사 충격파 후
@@ -408,20 +416,37 @@ async function calculateFlowConditions() {
         const cp5 = isMix ? calcCpFromT_mix(state5Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state5Raw.t, drivenGas, mw1);
         const a5 = Math.sqrt(g5 * R1 * state5Raw.t);
         const h5 = cp5 * state5Raw.t;
-        const s5 = cp5 * Math.log(state5Raw.t) - R1 * Math.log(state5Raw.p);
+        const s5 = calcEntropy(state5Raw.t, state5Raw.p, drivenGas, mw1);
+        const h5_total = h5;  // u5 = 0
+        const mu5 = calcViscosity(state5Raw.t, drivenGas);
+        const Re_unit5 = 0;  // u5 = 0
         
         const stage5 = {
-            p: state5Raw.p, t: state5Raw.t, rho: state5Raw.rho, u: 0, h: h5, R: R1,
-            gamma: g5, cp: cp5, a: a5, s: s5, V: 0, M: 0
+            p: state5Raw.p, t: state5Raw.t, rho: state5Raw.rho, u: 0, h: h5, h_total: h5_total / 1e6, R: R1,
+            gamma: g5, cp: cp5, a: a5, s: s5, V: 0, M: 0,
+            mu: mu5, Re_unit: Re_unit5 / 1e6
         };
         
-        // Stage 5s: 측정 압력 기준 안정화 (단열 과정)
-        const p5s_p5 = p5s / state5Raw.p;
-        let t5s = state5Raw.t * Math.pow(p5s_p5, (g5 - 1) / g5);
+        // Stage 5s: 측정 압력 기준 안정화 (등엔트로피 과정)
+        const s5_target = s5;
+        let t5s = state5Raw.t * Math.pow(p5s / state5Raw.p, (g5 - 1) / g5);  // 초기 추정
         
-        for (let iter = 0; iter < 5; iter++) {
-            const g5s = isMix ? calcGammaFromT_mix(t5s, drivenProps.X_He) : calcGammaFromT(t5s, drivenGas);
-            t5s = state5Raw.t * Math.pow(p5s_p5, (g5s - 1) / g5s);
+        // 엔트로피 보존: s(T5s, p5s) = s(T5, p5)
+        for (let iter = 0; iter < 10; iter++) {
+            const s5s_calc = calcEntropy(t5s, p5s, drivenGas, mw1);
+            const error = s5s_calc - s5_target;
+            
+            if (Math.abs(error / s5_target) < 1e-8) break;
+            
+            // 수치 미분
+            const delta = t5s * 1e-6;
+            const s5s_plus = calcEntropy(t5s + delta, p5s, drivenGas, mw1);
+            const ds_dT = (s5s_plus - s5s_calc) / delta;
+            
+            if (Math.abs(ds_dT) > 1e-15) {
+                t5s = t5s - error / ds_dT;
+                t5s = Math.max(200, Math.min(6000, t5s));
+            }
         }
         
         const g5s = isMix ? calcGammaFromT_mix(t5s, drivenProps.X_He) : calcGammaFromT(t5s, drivenGas);
@@ -429,11 +454,15 @@ async function calculateFlowConditions() {
         const a5s = Math.sqrt(g5s * R1 * t5s);
         const cp5s = isMix ? calcCpFromT_mix(t5s, drivenProps.X_He, mw1) : calcCpFromT(t5s, drivenGas, mw1);
         const h5s = cp5s * t5s;
-        const s5s = cp5s * Math.log(t5s) - R1 * Math.log(p5s);
+        const s5s = calcEntropy(t5s, p5s, drivenGas, mw1);
+        const h5s_total = h5s;  // u5s = 0
+        const mu5s = calcViscosity(t5s, drivenGas);
+        const Re_unit5s = 0;  // u5s = 0
         
         const stage5s = {
-            p: p5s, t: t5s, rho: rho5s, u: 0, h: h5s, R: R1,
-            gamma: g5s, cp: cp5s, a: a5s, s: s5s, V: 0, M: 0
+            p: p5s, t: t5s, rho: rho5s, u: 0, h: h5s, h_total: h5s_total / 1e6, R: R1,
+            gamma: g5s, cp: cp5s, a: a5s, s: s5s, V: 0, M: 0,
+            mu: mu5s, Re_unit: Re_unit5s / 1e6
         };
         
         // Stage 6: 노즐 목 (M=1)
@@ -520,26 +549,31 @@ function createStageCard(title, state) {
     const card = document.createElement('div');
     card.className = 'stage-card';
     
-    const properties = [
+    const properties = [];
+    
+    if (state.M !== undefined && state.M !== 0) {
+        properties.push({ label: 'M', value: state.M.toFixed(3) });
+    }
+    
+    properties.push(
         { label: 'P [bar]', value: (state.p / 1e5).toFixed(4) },
         { label: 'T [K]', value: state.t ? state.t.toFixed(2) : 'N/A' },
         { label: 'ρ [kg/m³]', value: state.rho ? state.rho.toFixed(4) : 'N/A' },
         { label: 'u [m/s]', value: state.u !== undefined ? state.u.toFixed(2) : 'N/A' },
-        { label: 'a [m/s]', value: state.a ? state.a.toFixed(2) : 'N/A' },
+        { label: 'a [m/s]', value: state.a ? state.a.toFixed(2) : 'N/A' }
+    );
+    
+    if (state.h_total !== undefined) {
+        properties.push({ label: 'h_total [MJ/kg]', value: state.h_total.toFixed(3) });
+    }
+    
+    properties.push(
         { label: 'γ', value: state.gamma ? state.gamma.toFixed(4) : 'N/A' },
         { label: 'cp [J/kg·K]', value: state.cp ? state.cp.toFixed(1) : 'N/A' }
-    ];
+    );
     
-    if (state.M !== undefined) {
-        properties.unshift({ label: 'M', value: state.M.toFixed(2) });
-    }
-    
-    if (state.Re_unit_e6) {
-        properties.push({ label: 'Re/m [×10⁶]', value: state.Re_unit_e6.toFixed(2) });
-    }
-    
-    if (state.H0_MJ) {
-        properties.push({ label: 'h_tot [MJ/kg]', value: state.H0_MJ.toFixed(3) });
+    if (state.Re_unit !== undefined && state.Re_unit !== 0) {
+        properties.push({ label: 'Re/m [×10⁶/m]', value: state.Re_unit.toFixed(2) });
     }
     
     let html = `<h4>${title}</h4>`;
