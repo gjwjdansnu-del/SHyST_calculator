@@ -79,8 +79,10 @@ async function processDataStep1() {
         
         // 그래프 그리기
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
-        drawFilteredDataGraph(filteredData, uploadedDAQConnection);
-        drawChannelGraphs(filteredData, uploadedDAQConnection);
+        updateRiseThresholdValue();
+        const riseIndices = computeRiseIndices();
+        drawFilteredDataGraph(filteredData, uploadedDAQConnection, riseIndices);
+        drawChannelGraphs(filteredData, uploadedDAQConnection, riseIndices);
         
         // 그래프 섹션 표시
         document.getElementById('graph-section').style.display = 'block';
@@ -89,10 +91,9 @@ async function processDataStep1() {
         document.getElementById('test-time-start-slider').min = -1;
         document.getElementById('test-time-start-slider').max = 30;
         document.getElementById('test-time-start-slider').value = 0;
-        
-        document.getElementById('test-time-end-slider').min = -1;
-        document.getElementById('test-time-end-slider').max = 30;
-        document.getElementById('test-time-end-slider').value = 30;
+        document.getElementById('test-time-length-slider').min = 0;
+        document.getElementById('test-time-length-slider').max = 31;
+        document.getElementById('test-time-length-slider').value = 30;
         
         updateTestTimeLines();
         
@@ -131,10 +132,11 @@ async function processDataStep2() {
         
         const {filteredData, FPS} = step1Results;
         
-        // 슬라이더에서 시험 시작/끝 시간 가져오기
+        // 슬라이더에서 시험 시작/길이 가져오기
         const testStartMs = parseFloat(document.getElementById('test-time-start-slider').value);
-        const testEndMs = parseFloat(document.getElementById('test-time-end-slider').value);
-        const testTimeMs = testEndMs - testStartMs;
+        const testLengthMs = parseFloat(document.getElementById('test-time-length-slider').value);
+        const testEndMs = Math.min(30, testStartMs + testLengthMs);
+        const testTimeMs = Math.max(0, testEndMs - testStartMs);
         
         console.log('시험 시간:', {testStartMs, testEndMs, testTimeMs});
         
@@ -257,25 +259,23 @@ async function processDataStep2() {
 // 시험 시작/끝 라인 업데이트
 function updateTestTimeLines() {
     const startMs = parseFloat(document.getElementById('test-time-start-slider').value);
-    const endMs = parseFloat(document.getElementById('test-time-end-slider').value);
-    const lengthMs = endMs - startMs;
+    const lengthMs = parseFloat(document.getElementById('test-time-length-slider').value);
+    const endMs = Math.min(30, startMs + lengthMs);
+    const finalLengthMs = Math.max(0, endMs - startMs);
     
     document.getElementById('test-start-value').textContent = startMs.toFixed(1);
     document.getElementById('test-end-value').textContent = endMs.toFixed(1);
-    document.getElementById('test-length-value').textContent = lengthMs.toFixed(1);
+    document.getElementById('test-length-value').textContent = finalLengthMs.toFixed(1);
     
     // 그래프 다시 그리기
     if (step1Results.filteredData) {
         const tempTestTime = {
             startIndex: Math.floor((startMs + 1) / 1000 * step1Results.FPS),
             endIndex: Math.floor((endMs + 1) / 1000 * step1Results.FPS),
-            testTime: lengthMs
+            testTime: finalLengthMs
         };
 
-        const tempIndices = {
-            driven7Index: processedResults?.driven7Index ?? null,
-            driven8Index: processedResults?.driven8Index ?? null
-        };
+        const tempIndices = computeRiseIndices();
         drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, tempIndices);
         drawChannelGraphs(step1Results.filteredData, uploadedDAQConnection, tempIndices);
         drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime, tempIndices.driven8Index);
@@ -706,6 +706,64 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
         
         ctx.setLineDash([]);
     }
+}
+
+function updateRiseThresholdValue() {
+    const slider = document.getElementById('rise-threshold-slider');
+    const valueEl = document.getElementById('rise-threshold-value');
+    if (!slider || !valueEl) return;
+    const value = parseFloat(slider.value) || 4;
+    valueEl.textContent = value.toFixed(1);
+}
+
+function computeRiseIndices() {
+    if (!step1Results.filteredData || !uploadedDAQConnection) {
+        return { driven7Index: null, driven8Index: null };
+    }
+    const coeff = parseFloat(document.getElementById('rise-threshold-slider')?.value) || 4;
+    const riseSearchStartMs = 2;
+    const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * step1Results.FPS);
+    const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
+    const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
+    
+    const driven7Slice = driven7Channel !== null ? step1Results.filteredData.channels[`ch${driven7Channel}`] : null;
+    const driven8Slice = driven8Channel !== null ? step1Results.filteredData.channels[`ch${driven8Channel}`] : null;
+    
+    const driven7Index = driven7Slice ? findPressureRise(driven7Slice, step1Results.FPS, {
+        startIndex: riseSearchStartIdx,
+        thresholdCoeff: coeff,
+        stdCoeff: coeff,
+        sustainMs: 0.5
+    }) : null;
+    
+    const driven8Index = driven8Slice ? findPressureRise(driven8Slice, step1Results.FPS, {
+        startIndex: riseSearchStartIdx,
+        thresholdCoeff: coeff,
+        stdCoeff: coeff,
+        sustainMs: 0.3
+    }) : null;
+    
+    return { driven7Index, driven8Index };
+}
+
+function updateRiseThreshold() {
+    updateRiseThresholdValue();
+    if (!step1Results.filteredData) return;
+    
+    const riseIndices = computeRiseIndices();
+    const startMs = parseFloat(document.getElementById('test-time-start-slider').value);
+    const lengthMs = parseFloat(document.getElementById('test-time-length-slider').value);
+    const endMs = Math.min(30, startMs + lengthMs);
+    const tempTestTime = {
+        startIndex: Math.floor((startMs + 1) / 1000 * step1Results.FPS),
+        endIndex: Math.floor((endMs + 1) / 1000 * step1Results.FPS),
+        testTime: Math.max(0, endMs - startMs)
+    };
+    
+    drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, riseIndices);
+    drawChannelGraphs(step1Results.filteredData, uploadedDAQConnection, riseIndices);
+    drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime, riseIndices.driven8Index);
+    drawRmsRatioGraph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
 }
 
 function drawRmsRatioGraph(filteredData, daqConnection, testTimeResult) {

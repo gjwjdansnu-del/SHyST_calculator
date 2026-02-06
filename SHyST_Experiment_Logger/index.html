@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.15</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.16</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -238,35 +238,47 @@
                     <h4 style="margin: 20px 0 10px;">Driver</h4>
                     <canvas id="driver-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
                     
-                    <h4 style="margin: 20px 0 10px;">Driven 7</h4>
-                    <canvas id="driven7-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
-                    
-                    <h4 style="margin: 20px 0 10px;">Driven 8 (시험 구간 표시)</h4>
-                    <canvas id="driven8-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
-                    
-                    <h4 style="margin: 20px 0 10px;">시험 길이 RMS 그래프</h4>
-                    <canvas id="rms-preview" width="1200" height="400" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
-                    
-                    <div style="margin-top: 20px; padding: 20px; background: #f5f5f5; border-radius: 8px;">
-                        <h4 style="margin-top: 0;">시험 시작/끝점 조정</h4>
-                        <p style="color: #666; font-size: 14px;">그래프를 보면서 슬라이더를 조정하세요. 빨간 선이 시작점, 파란 선이 끝점입니다.</p>
-                        
-                        <div class="form-group">
-                            <label>시험 시작 시간 (ms): <span id="test-start-value">0.0</span></label>
-                            <input type="range" id="test-time-start-slider" min="0" max="30" step="0.1" value="0"
-                                   oninput="updateTestTimeLines()" style="width: 100%;">
+                    <div class="graph-row">
+                        <div class="graph-left">
+                            <h4 style="margin: 20px 0 10px;">Driven 7</h4>
+                            <canvas id="driven7-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
                         </div>
-                        
-                        <div class="form-group">
-                            <label>시험 끝 시간 (ms): <span id="test-end-value">30.0</span></label>
-                            <input type="range" id="test-time-end-slider" min="0" max="30" step="0.1" value="30"
-                                   oninput="updateTestTimeLines()" style="width: 100%;">
+                        <div class="graph-controls">
+                            <label>Rise Threshold</label>
+                            <input type="range" id="rise-threshold-slider" min="1" max="8" step="0.5" value="4"
+                                   class="vertical-slider" oninput="updateRiseThreshold()">
+                            <div class="slider-value" id="rise-threshold-value">4.0</div>
                         </div>
-                        
-                        <div class="form-group">
-                            <label>시험 길이: <span id="test-length-value">30.0</span> ms</label>
+                    </div>
+                    
+                    <div class="graph-row">
+                        <div class="graph-left">
+                            <h4 style="margin: 20px 0 10px;">Driven 8 (시험 구간 표시)</h4>
+                            <canvas id="driven8-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
                         </div>
-                        
+                        <div class="graph-controls">
+                            <label>시험 시작 (ms)</label>
+                            <input type="range" id="test-time-start-slider" min="-1" max="30" step="0.1" value="0"
+                                   class="vertical-slider" oninput="updateTestTimeLines()">
+                            <div class="slider-value"><span id="test-start-value">0.0</span></div>
+                            <div class="slider-sub">끝: <span id="test-end-value">30.0</span> ms</div>
+                        </div>
+                    </div>
+                    
+                    <div class="graph-row">
+                        <div class="graph-left">
+                            <h4 style="margin: 20px 0 10px;">시험 길이 RMS 그래프</h4>
+                            <canvas id="rms-preview" width="1200" height="400" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                        </div>
+                        <div class="graph-controls tall">
+                            <label>시험 길이 (ms)</label>
+                            <input type="range" id="test-time-length-slider" min="0" max="31" step="0.1" value="30"
+                                   class="vertical-slider tall" oninput="updateTestTimeLines()">
+                            <div class="slider-value"><span id="test-length-value">30.0</span> ms</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 20px;">
                         <button onclick="processDataStep2()" class="btn-primary" style="margin-top: 15px;">
                             ▶️ 2단계 처리 (최종 측정값 계산)
                         </button>
