@@ -977,26 +977,54 @@ function findPressureRise(data, fps) {
         gradient.push(initialData[i] - initialData[i-1]);
     }
     
-    const maxGradient = Math.max(...gradient);
-    const minGradient = Math.min(...gradient);
+    const gradStats = arrayMinMax(gradient);
+    const maxGradient = gradStats.max ?? 0;
+    const minGradient = gradStats.min ?? 0;
     
     // 3. 임계값: 최대/최소 기울기 절댓값의 3배
     const threshold = 3 * Math.max(Math.abs(maxGradient), Math.abs(minGradient));
     
     console.log('압력 상승 임계값:', threshold);
     
-    // 4. 전체 기울기 계산
-    const filteredGradient = [];
+    // 4. 전체 기울기 계산 + 최대/최소 추적
+    let maxIdx = null;
+    let minIdx = null;
+    let maxVal = -Infinity;
+    let minVal = Infinity;
+    
     for (let i = 1; i < filtered.length; i++) {
-        filteredGradient.push(filtered[i] - filtered[i-1]);
+        const g = filtered[i] - filtered[i-1];
+        if (g > maxVal) {
+            maxVal = g;
+            maxIdx = i - 1;
+        }
+        if (g < minVal) {
+            minVal = g;
+            minIdx = i - 1;
+        }
+        
+        if (g > threshold) {
+            console.log('압력 상승 감지:', i - 1, 'gradient:', g);
+            return i - 1;
+        }
     }
     
-    // 5. 상승 시작점 찾기 (gradient > threshold)
-    for (let i = 0; i < filteredGradient.length; i++) {
-        if (filteredGradient[i] > threshold) {
-            console.log('압력 상승 감지:', i, 'gradient:', filteredGradient[i]);
-            return i;
-        }
+    // 5. fallback: 최대 기울기 지점 사용
+    if (maxIdx !== null && isFinite(maxVal) && maxVal > 0) {
+        console.warn('⚠️ 임계값 초과 지점이 없어 최대 기울기로 대체:', {
+            index: maxIdx,
+            gradient: maxVal
+        });
+        return maxIdx;
+    }
+    
+    // 6. 마지막 fallback: 감소 방향이 더 뚜렷한 경우
+    if (minIdx !== null && isFinite(minVal) && Math.abs(minVal) > Math.abs(maxVal)) {
+        console.warn('⚠️ 상승이 아닌 감소가 더 뚜렷합니다. 감소 최대 지점 반환:', {
+            index: minIdx,
+            gradient: minVal
+        });
+        return minIdx;
     }
     
     console.log('압력 상승을 찾을 수 없습니다.');
