@@ -738,57 +738,6 @@ function findDriverDropIndex(driverData, fps, thresholdCoeff = 3) {
         throw error;
     }
 }
-    
-    console.log('✅ 임계값 설정:', {
-        threshold: threshold.toFixed(6),
-        negativeThreshold: (-threshold).toFixed(6)
-    });
-    
-    // 4. 전체 데이터에서 감소 시작점 탐색 (원본 Python: filtered_gradient < -threshold)
-    console.log('⏳ Step 3: 전체 데이터에서 감소 시작점 탐색 중...');
-    
-    // 전체 필터링된 데이터의 기울기 계산
-    const filteredGradient = [];
-    for (let i = 1; i < filtered.length; i++) {
-        filteredGradient.push(filtered[i] - filtered[i-1]);
-        
-        // 진행 상황 표시
-        if (i % Math.floor(filtered.length / 10) === 0) {
-            console.log(`  진행: ${Math.floor(i / filtered.length * 100)}%`);
-        }
-    }
-    
-    // 임계값보다 작은 (급격한 감소) 지점 찾기
-    let declineIndex = null;
-    for (let i = 0; i < filteredGradient.length; i++) {
-        if (filteredGradient[i] < -threshold) {
-            declineIndex = i;
-            console.log('✅ 감소 시작점 발견:', {
-                index: declineIndex,
-                gradient: filteredGradient[i].toFixed(6),
-                value: filtered[declineIndex].toFixed(6)
-            });
-            break;
-        }
-    }
-    
-    if (declineIndex === null) {
-        console.error('❌ 임계값 조건을 만족하는 감소 시작점을 찾을 수 없습니다.');
-        console.log('디버그 정보:', {
-            threshold: -threshold,
-            minGradientFound: Math.min(...filteredGradient),
-            maxGradientFound: Math.max(...filteredGradient),
-            sampleGradients: filteredGradient.slice(0, 10).map(g => g.toFixed(6))
-        });
-        return null;
-    }
-    
-    // driver_index 반환 (원본 Python에서는 index를 그대로 사용)
-    const driverIndex = declineIndex;
-    console.log('✅ 최종 driver_index:', driverIndex);
-    
-    return driverIndex;
-}
 
 // ============================================
 // 5. 데이터 슬라이싱
