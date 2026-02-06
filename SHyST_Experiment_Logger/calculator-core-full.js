@@ -166,18 +166,28 @@ function calcHOverRT_NASA(T, gasType) {
 
 // 온도에 따른 cp 계산 [J/kg·K] (NASA 다항식)
 function calcCpFromT(T, gasType, mw) {
+    // 대소문자 무시 및 공백 제거
+    const normalizedType = (gasType || '').toString().toLowerCase().trim();
+    let gasKey = 'air'; // 기본값
+    
+    if (normalizedType.includes('air')) {
+        gasKey = 'air';
+    } else if (normalizedType.includes('co2') || normalizedType.includes('co₂')) {
+        gasKey = 'co2';
+    }
+    
     const R_specific = R_universal / mw;  // J/kg·K
-    const cpOverR = calcCpOverR_NASA(T, gasType);
+    const cpOverR = calcCpOverR_NASA(T, gasKey);
     
     if (cpOverR === null || !isFinite(cpOverR) || cpOverR <= 1) {
         // NASA 계수가 없거나 이상한 값이면 기본값
-        const gamma = GAS_DATA[gasType] ? GAS_DATA[gasType].gamma : 1.4;
+        const gamma = GAS_DATA[gasKey] ? GAS_DATA[gasKey].gamma : 1.4;
         return gamma / (gamma - 1) * R_specific;
     }
     
     const cp = cpOverR * R_specific;
     if (!isFinite(cp)) {
-        const gamma = GAS_DATA[gasType] ? GAS_DATA[gasType].gamma : 1.4;
+        const gamma = GAS_DATA[gasKey] ? GAS_DATA[gasKey].gamma : 1.4;
         return gamma / (gamma - 1) * R_specific;
     }
     
@@ -186,17 +196,27 @@ function calcCpFromT(T, gasType, mw) {
 
 // 온도에 따른 gamma 계산 (NASA 다항식 기반)
 function calcGammaFromT(T, gasType) {
-    const cpOverR = calcCpOverR_NASA(T, gasType);
+    // 대소문자 무시 및 공백 제거
+    const normalizedType = (gasType || '').toString().toLowerCase().trim();
+    let gasKey = 'air'; // 기본값
+    
+    if (normalizedType.includes('air')) {
+        gasKey = 'air';
+    } else if (normalizedType.includes('co2') || normalizedType.includes('co₂')) {
+        gasKey = 'co2';
+    }
+    
+    const cpOverR = calcCpOverR_NASA(T, gasKey);
     
     if (cpOverR === null || !isFinite(cpOverR) || cpOverR <= 1) {
-        return GAS_DATA[gasType] ? GAS_DATA[gasType].gamma : 1.4;
+        return GAS_DATA[gasKey] ? GAS_DATA[gasKey].gamma : 1.4;
     }
     
     // gamma = cp/cv = cp/(cp - R) = cpOverR / (cpOverR - 1)
     const gamma = cpOverR / (cpOverR - 1);
     
     if (!isFinite(gamma) || gamma < 1 || gamma > 2) {
-        return GAS_DATA[gasType] ? GAS_DATA[gasType].gamma : 1.4;
+        return GAS_DATA[gasKey] ? GAS_DATA[gasKey].gamma : 1.4;
     }
     
     return gamma;
@@ -380,14 +400,28 @@ function calcCpFromT_mix(T, X_He, mw_mix) {
 
 // 가스 물성치 반환
 function getGasProperties(gasType, X_He = 0.5) {
-    if (gasType === 'mix') {
+    // 대소문자 무시 및 공백 제거
+    const normalizedType = (gasType || '').toString().toLowerCase().trim();
+    
+    // mix 타입 체크
+    if (normalizedType === 'mix') {
         return calcMixtureProperties(X_He);
     }
     
-    const gas = GAS_DATA[gasType];
-    if (!gas) {
-        throw new Error(`Unknown gas type: ${gasType}`);
+    // Air 또는 CO2만 허용 (대소문자 무시)
+    let gasKey = null;
+    if (normalizedType.includes('air')) {
+        gasKey = 'air';
+    } else if (normalizedType.includes('co2') || normalizedType.includes('co₂')) {
+        gasKey = 'co2';
     }
+    
+    if (!gasKey) {
+        console.warn(`Unknown gas type: "${gasType}", defaulting to Air`);
+        gasKey = 'air';
+    }
+    
+    const gas = GAS_DATA[gasKey];
     return { mw: gas.mw, gamma: gas.gamma, name: gas.name };
 }
 

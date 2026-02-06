@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.26</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.27</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -402,12 +402,12 @@
                             <input type="number" id="calc-shock-speed" step="0.01" readonly style="background: #f5f5f5;">
                         </div>
                         <div class="form-group">
-                            <label>목표 마하수</label>
-                            <input type="number" id="calc-target-mach" step="0.1" readonly style="background: #f5f5f5;">
-                        </div>
-                        <div class="form-group">
                             <label>드리븐 가스</label>
                             <input type="text" id="calc-driven-gas" readonly style="background: #f5f5f5;">
+                        </div>
+                        <div class="form-group">
+                            <label>목표 마하수</label>
+                            <input type="number" id="calc-target-mach" step="0.1" readonly style="background: #f5f5f5;">
                         </div>
                     </div>
                     <button onclick="calculateFlowConditions()" class="btn-primary" style="font-size: 18px; padding: 15px 40px; width: 100%;">

@@ -363,12 +363,10 @@ async function calculateFlowConditions() {
     const p5s = p5s_bar * 1e5; // Pa
     
     const drivenGas = currentExperiment.before.shystSetting.drivenGas;
-    const driverGas = currentExperiment.before.shystSetting.driverGas;
     
     try {
-        // 가스 물성치
+        // 가스 물성치 (Driven 가스만 사용)
         const drivenProps = getGasProperties(drivenGas);
-        const driverProps = getGasProperties(driverGas);
         
         const mw1 = drivenProps.mw;
         const R1 = R_universal / mw1;
