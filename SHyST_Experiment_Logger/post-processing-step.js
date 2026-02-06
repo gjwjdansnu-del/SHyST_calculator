@@ -153,7 +153,7 @@ async function processDataStep2() {
         
         if (driven7Channel !== null) {
             const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
-            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
+            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx, thresholdCoeff: 2 }) : null;
         }
         
         if (driven8Channel !== null) {

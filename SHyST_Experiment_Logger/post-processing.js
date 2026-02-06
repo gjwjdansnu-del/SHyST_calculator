@@ -462,7 +462,7 @@ async function processData() {
             
             if (driven7Channel !== null) {
                 const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
-                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
+                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx, thresholdCoeff: 2 }) : null;
                 console.log('Driven7 압력 상승:', driven7Index);
             }
             
@@ -966,7 +966,7 @@ function findPressureRise(data, fps, options = {}) {
     // direction='increase', window_size=1, gradient_check_size=10000
     if (!data || data.length === 0) return null;
     
-    const { startIndex = 0 } = options;
+    const { startIndex = 0, thresholdCoeff = 3, baselineMs = 5, stdCoeff = 3 } = options;
     const source = data.slice(Math.max(0, startIndex));
     
     console.log('압력 상승 감지 시작:', data.length, '샘플', '검색 시작:', startIndex);
@@ -987,8 +987,8 @@ function findPressureRise(data, fps, options = {}) {
     const maxGradient = gradStats.max ?? 0;
     const minGradient = gradStats.min ?? 0;
     
-    // 3. 임계값: 최대/최소 기울기 절댓값의 3배
-    const threshold = 3 * Math.max(Math.abs(maxGradient), Math.abs(minGradient));
+    // 3. 임계값: 최대/최소 기울기 절댓값의 N배
+    const threshold = thresholdCoeff * Math.max(Math.abs(maxGradient), Math.abs(minGradient));
     
     console.log('압력 상승 임계값:', threshold);
     
@@ -1016,7 +1016,29 @@ function findPressureRise(data, fps, options = {}) {
         }
     }
     
-    // 5. fallback: 최대 기울기 지점 사용
+    // 5. fallback: 베이스라인 평균+표준편차 기준
+    const baselineSamples = Math.min(filtered.length, Math.max(1000, Math.floor(fps * (baselineMs / 1000))));
+    const baseline = filtered.slice(0, baselineSamples);
+    const baselineMean = average(baseline);
+    const baselineStd = standardDeviation(baseline);
+    const valueThreshold = baselineMean !== null && baselineStd !== null
+        ? (baselineMean + stdCoeff * baselineStd)
+        : null;
+    
+    if (valueThreshold !== null && isFinite(valueThreshold)) {
+        for (let i = 0; i < filtered.length; i++) {
+            if (filtered[i] > valueThreshold) {
+                const index = i + startIndex;
+                console.warn('⚠️ 임계값 초과 지점이 없어 값 기준으로 대체:', {
+                    index,
+                    threshold: valueThreshold
+                });
+                return index;
+            }
+        }
+    }
+    
+    // 6. 마지막 fallback: 최대 기울기 지점 사용
     if (maxIdx !== null && isFinite(maxVal) && maxVal > 0) {
         console.warn('⚠️ 임계값 초과 지점이 없어 최대 기울기로 대체:', {
             index: maxIdx + startIndex,
@@ -1025,7 +1047,7 @@ function findPressureRise(data, fps, options = {}) {
         return maxIdx + startIndex;
     }
     
-    // 6. 마지막 fallback: 감소 방향이 더 뚜렷한 경우
+    // 7. 감소 방향이 더 뚜렷한 경우
     if (minIdx !== null && isFinite(minVal) && Math.abs(minVal) > Math.abs(maxVal)) {
         console.warn('⚠️ 상승이 아닌 감소가 더 뚜렷합니다. 감소 최대 지점 반환:', {
             index: minIdx,
