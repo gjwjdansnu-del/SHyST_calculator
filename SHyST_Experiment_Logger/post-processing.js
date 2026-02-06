@@ -441,7 +441,7 @@ async function processData() {
             throw new Error(`Step 4 실패: ${e.message}`);
         }
         
-        // Step 5: Driven 압력 상승 감지 (원본 데이터 기준)
+        // Step 5: Driven 압력 상승 감지 (슬라이스 기준)
         let driven7Channel, driven8Channel, driven7Index, driven8Index;
         let modelFrontChannel, modelFrontIndex;
         try {
@@ -457,23 +457,26 @@ async function processData() {
             driven8Index = null;
             modelFrontIndex = null;
             
+            const riseSearchStartMs = 2;
+            const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * FPS);
+            
             if (driven7Channel !== null) {
-                const driven7Raw = uploadedExpData.channels[`ch${driven7Channel}`];
-                driven7Index = driven7Raw ? findPressureRise(driven7Raw, FPS) : null;
+                const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
+                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
                 console.log('Driven7 압력 상승:', driven7Index);
             }
             
             if (driven8Channel !== null) {
-                const driven8Raw = uploadedExpData.channels[`ch${driven8Channel}`];
-                driven8Index = driven8Raw ? findPressureRise(driven8Raw, FPS) : null;
+                const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
+                driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
                 console.log('Driven8 압력 상승:', driven8Index);
             }
             
             if (detectModelFront) {
                 modelFrontChannel = findChannelByDescription(uploadedDAQConnection, 'model front');
                 if (modelFrontChannel !== null) {
-                    const modelFrontRaw = uploadedExpData.channels[`ch${modelFrontChannel}`];
-                    modelFrontIndex = modelFrontRaw ? findPressureRise(modelFrontRaw, FPS) : null;
+                    const modelFrontSlice = filteredData.channels[`ch${modelFrontChannel}`];
+                    modelFrontIndex = modelFrontSlice ? findPressureRise(modelFrontSlice, FPS, { startIndex: riseSearchStartIdx }) : null;
                     console.log('Model front 압력 상승:', modelFrontIndex);
                 }
             }
@@ -530,7 +533,7 @@ async function processData() {
                 driven8Index,
                 modelFrontIndex: modelFrontIndex ?? null,
                 timeOffsetStartMs: sliceStartMs,
-                indicesOrigin: 'full',
+                indicesOrigin: 'slice',
                 testTimeStartMs,
                 t1FromBefore
             });
@@ -958,15 +961,18 @@ function applyAllFilters(convertedData, daqConnection, fps) {
 // 8. Driven 압력 상승 감지
 // ============================================
 
-function findPressureRise(data, fps) {
+function findPressureRise(data, fps, options = {}) {
     // 원본 Python 코드의 find_change_index 함수와 동일
     // direction='increase', window_size=1, gradient_check_size=10000
     if (!data || data.length === 0) return null;
     
-    console.log('압력 상승 감지 시작:', data.length, '샘플');
+    const { startIndex = 0 } = options;
+    const source = data.slice(Math.max(0, startIndex));
+    
+    console.log('압력 상승 감지 시작:', data.length, '샘플', '검색 시작:', startIndex);
     
     // 1. 이동평균 필터 (window_size=1, 즉 필터 없음)
-    const filtered = data; // window_size=1이므로 원본 그대로
+    const filtered = source; // window_size=1이므로 원본 그대로
     
     // 2. 초반 10000개 기울기 계산
     const gradientCheckSize = 10000;
@@ -1004,18 +1010,19 @@ function findPressureRise(data, fps) {
         }
         
         if (g > threshold) {
-            console.log('압력 상승 감지:', i - 1, 'gradient:', g);
-            return i - 1;
+            const index = (i - 1) + startIndex;
+            console.log('압력 상승 감지:', index, 'gradient:', g);
+            return index;
         }
     }
     
     // 5. fallback: 최대 기울기 지점 사용
     if (maxIdx !== null && isFinite(maxVal) && maxVal > 0) {
         console.warn('⚠️ 임계값 초과 지점이 없어 최대 기울기로 대체:', {
-            index: maxIdx,
+            index: maxIdx + startIndex,
             gradient: maxVal
         });
-        return maxIdx;
+        return maxIdx + startIndex;
     }
     
     // 6. 마지막 fallback: 감소 방향이 더 뚜렷한 경우

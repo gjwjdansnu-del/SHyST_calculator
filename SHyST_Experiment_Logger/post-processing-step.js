@@ -148,19 +148,22 @@ async function processDataStep2() {
         let driven8Index = null;
         let modelFrontIndex = null;
         
+        const riseSearchStartMs = 2;
+        const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * FPS);
+        
         if (driven7Channel !== null) {
-            const driven7Raw = uploadedExpData?.channels?.[`ch${driven7Channel}`];
-            driven7Index = driven7Raw ? findPressureRise(driven7Raw, FPS) : null;
+            const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
+            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
         }
         
         if (driven8Channel !== null) {
-            const driven8Raw = uploadedExpData?.channels?.[`ch${driven8Channel}`];
-            driven8Index = driven8Raw ? findPressureRise(driven8Raw, FPS) : null;
+            const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
+            driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, { startIndex: riseSearchStartIdx }) : null;
         }
         
         if (modelFrontChannel !== null) {
-            const modelFrontRaw = uploadedExpData?.channels?.[`ch${modelFrontChannel}`];
-            modelFrontIndex = modelFrontRaw ? findPressureRise(modelFrontRaw, FPS) : null;
+            const modelFrontSlice = filteredData.channels[`ch${modelFrontChannel}`];
+            modelFrontIndex = modelFrontSlice ? findPressureRise(modelFrontSlice, FPS, { startIndex: riseSearchStartIdx }) : null;
         }
         
         console.log('Driven 압력 상승:', {driven7Index, driven8Index, modelFrontIndex});
@@ -189,7 +192,7 @@ async function processDataStep2() {
             driven8Index,
             modelFrontIndex,
             timeOffsetStartMs: sliceStartMs,
-            indicesOrigin: 'full',
+            indicesOrigin: 'slice',
             testTimeStartMs: testStartMs,
             t1FromBefore
         });
