@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.28</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.29</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -28,7 +28,6 @@
             <button class="tab-btn active" onclick="switchTab('before')">📝 실험 전 (Before)</button>
             <button class="tab-btn" onclick="switchTab('processing')">🔬 데이터 후처리 (Processing)</button>
             <button class="tab-btn" onclick="switchTab('calculation')">🧮 유동조건 계산 (Calculation)</button>
-            <button class="tab-btn" onclick="switchTab('summary')">📊 요약 (Summary)</button>
         </nav>
 
         <!-- 메인 컨텐츠 -->
@@ -422,17 +421,6 @@
                 </div>
             </div>
 
-            <!-- 요약 페이지 -->
-            <div id="tab-summary" class="tab-content">
-                <div class="page-header">
-                    <h2>📊 실험 요약</h2>
-                    <button onclick="generateReport()" class="btn-primary">📄 보고서 생성</button>
-                </div>
-
-                <div id="summary-content" class="summary-container">
-                    <p class="placeholder-text">실험 데이터를 입력하고 계산을 완료하면 요약이 표시됩니다.</p>
-                </div>
-            </div>
         </main>
     </div>
 

@@ -7,18 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 비밀번호 보호 화면 -->
-    <div id="password-screen" class="password-screen">
-        <div class="password-box">
-            <h1>🔒 APL SHyST Calculator</h1>
-            <p>이 사이트는 비밀번호로 보호되어 있습니다.</p>
-            <input type="password" id="password-input" placeholder="비밀번호 입력" onkeypress="if(event.key==='Enter') checkPassword()">
-            <button onclick="checkPassword()">접속</button>
-            <p id="password-error" class="password-error"></p>
-        </div>
-    </div>
-
-    <div class="container" id="main-content" style="display: none;">
+    <div class="container" id="main-content">
         <header>
             <h1>🚀 APL SHyST Calculator</h1>
             <p class="subtitle">해석해 + 1D Euler 시뮬레이션 (HLLC Solver)</p>
@@ -383,28 +372,7 @@
     </div>
 
     <script>
-        // 비밀번호 체크
-        const SITE_PASSWORD = 'apl13041313!';
-        
-        // 세션에서 로그인 상태 확인
-        if (sessionStorage.getItem('authenticated') === 'true') {
-            document.getElementById('password-screen').style.display = 'none';
-            document.getElementById('main-content').style.display = 'block';
-        }
-        
-        function checkPassword() {
-            const input = document.getElementById('password-input').value;
-            const errorEl = document.getElementById('password-error');
-            
-            if (input === SITE_PASSWORD) {
-                sessionStorage.setItem('authenticated', 'true');
-                document.getElementById('password-screen').style.display = 'none';
-                document.getElementById('main-content').style.display = 'block';
-            } else {
-                errorEl.textContent = '❌ 비밀번호가 틀렸습니다.';
-                document.getElementById('password-input').value = '';
-            }
-        }
+        // 비밀번호 체크는 메인 index.html에서 처리됨
     </script>
     <script src="calculator.js"></script>
     <script src="simulator.js"></script>

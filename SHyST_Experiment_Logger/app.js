@@ -785,40 +785,4 @@ function addInputFocusHandlers() {
 // 보고서 생성
 // ============================================
 
-function generateReport() {
-    if (!currentExperiment) {
-        alert('실험 데이터가 없습니다.');
-        return;
-    }
-    
-    const summaryDiv = document.getElementById('summary-content');
-    
-    let html = '<div class="summary-sections">';
-    
-    // 실험 정보
-    html += '<div class="summary-section">';
-    html += '<h3>📋 실험 정보</h3>';
-    html += `<p><strong>실험 번호:</strong> ${currentExperiment.expNumber}</p>`;
-    html += `<p><strong>날짜:</strong> ${currentExperiment.before.expInfo.date}</p>`;
-    html += `<p><strong>실험자:</strong> ${currentExperiment.before.expInfo.name}</p>`;
-    html += `<p><strong>모델:</strong> ${currentExperiment.before.expInfo.testModel}</p>`;
-    html += `<p><strong>목적:</strong> ${currentExperiment.before.expInfo.objective}</p>`;
-    html += '</div>';
-    
-    // 계산 결과
-    if (currentExperiment.calculation.stages.stage7) {
-        const s7 = currentExperiment.calculation.stages.stage7;
-        html += '<div class="summary-section">';
-        html += '<h3>🚀 최종 유동 조건 (State 7)</h3>';
-        html += `<p><strong>마하수:</strong> ${s7.M.toFixed(2)}</p>`;
-        html += `<p><strong>레이놀즈수:</strong> ${s7.Re_unit_e6.toFixed(2)} ×10⁶/m</p>`;
-        html += `<p><strong>토탈 엔탈피:</strong> ${s7.H0_MJ.toFixed(3)} MJ/kg</p>`;
-        html += `<p><strong>온도:</strong> ${s7.t.toFixed(0)} K</p>`;
-        html += `<p><strong>압력:</strong> ${(s7.p / 1e5).toFixed(4)} bar</p>`;
-        html += '</div>';
-    }
-    
-    html += '</div>';
-    
-    summaryDiv.innerHTML = html;
-}
+// Summary 탭 제거됨
