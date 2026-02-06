@@ -215,7 +215,12 @@ async function processDataStep2() {
         updateProgress(100, '✅ 모든 처리 완료!');
         updateMeasurementFields(measurements);
         
-        // driven8 그래프에 최종 시험 구간 표시
+        // 그래프에 최종 시험 구간 및 압력 상승 표시
+        const riseIndices = {
+            driven7Index,
+            driven8Index
+        };
+        drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, riseIndices);
         drawDriven8Graph(filteredData, uploadedDAQConnection, testTimeResult);
         
         console.log('=== 처리 완료 ===');
@@ -256,14 +261,18 @@ function updateTestTimeLines() {
             testTime: lengthMs
         };
 
-        drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection);
+        const tempIndices = {
+            driven7Index: processedResults?.driven7Index ?? null,
+            driven8Index: processedResults?.driven8Index ?? null
+        };
+        drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, tempIndices);
         drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
         drawRmsRatioGraph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
     }
 }
 
 // 필터링된 데이터 그래프 그리기
-function drawFilteredDataGraph(filteredData, daqConnection) {
+function drawFilteredDataGraph(filteredData, daqConnection, riseIndices = null) {
     const canvas = document.getElementById('result-preview');
     const ctx = canvas.getContext('2d');
     
@@ -438,6 +447,90 @@ function drawFilteredDataGraph(filteredData, daqConnection) {
         }
         ctx.stroke();
     });
+    
+    // 압력 상승 표시 (driven7, driven8)
+    if (riseIndices && step1Results?.FPS) {
+        const fps = step1Results.FPS;
+        const numSamples = filteredData.numSamples;
+        
+        if (riseIndices.driven7Index !== null) {
+            const timeMs = (riseIndices.driven7Index / numSamples) * 31 - 1;
+            const x = margin.left + ((timeMs + 1) / 31) * width;
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, margin.top + height);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.9)';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('D7↑', x, margin.top - 5);
+        }
+        
+        if (riseIndices.driven8Index !== null) {
+            const timeMs = (riseIndices.driven8Index / numSamples) * 31 - 1;
+            const x = margin.left + ((timeMs + 1) / 31) * width;
+            ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, margin.top + height);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('D8↑', x, margin.top - 5);
+        }
+        
+        ctx.setLineDash([]);
+    }
+    
+    // 압력 상승 표시 (driven7, driven8)
+    if (riseIndices && step1Results?.FPS) {
+        const fps = step1Results.FPS;
+        const numSamples = filteredData.numSamples;
+        
+        if (riseIndices.driven7Index !== null) {
+            const timeMs = (riseIndices.driven7Index / numSamples) * 31 - 1;
+            const x = margin.left + ((timeMs + 1) / 31) * width;
+            ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, margin.top + height);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.9)';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('D7↑', x, margin.top - 5);
+        }
+        
+        if (riseIndices.driven8Index !== null) {
+            const timeMs = (riseIndices.driven8Index / numSamples) * 31 - 1;
+            const x = margin.left + ((timeMs + 1) / 31) * width;
+            ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, margin.top + height);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('D8↑', x, margin.top - 5);
+        }
+        
+        ctx.setLineDash([]);
+    }
     
     // 범례
     ctx.font = '11px Arial';
