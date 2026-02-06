@@ -149,15 +149,18 @@ async function processDataStep2() {
         let modelFrontIndex = null;
         
         if (driven7Channel !== null) {
-            driven7Index = findPressureRise(filteredData.channels[`ch${driven7Channel}`], FPS);
+            const driven7Raw = uploadedExpData?.channels?.[`ch${driven7Channel}`];
+            driven7Index = driven7Raw ? findPressureRise(driven7Raw, FPS) : null;
         }
         
         if (driven8Channel !== null) {
-            driven8Index = findPressureRise(filteredData.channels[`ch${driven8Channel}`], FPS);
+            const driven8Raw = uploadedExpData?.channels?.[`ch${driven8Channel}`];
+            driven8Index = driven8Raw ? findPressureRise(driven8Raw, FPS) : null;
         }
         
         if (modelFrontChannel !== null) {
-            modelFrontIndex = findPressureRise(filteredData.channels[`ch${modelFrontChannel}`], FPS);
+            const modelFrontRaw = uploadedExpData?.channels?.[`ch${modelFrontChannel}`];
+            modelFrontIndex = modelFrontRaw ? findPressureRise(modelFrontRaw, FPS) : null;
         }
         
         console.log('Driven 압력 상승:', {driven7Index, driven8Index, modelFrontIndex});
@@ -186,6 +189,7 @@ async function processDataStep2() {
             driven8Index,
             modelFrontIndex,
             timeOffsetStartMs: sliceStartMs,
+            indicesOrigin: 'full',
             testTimeStartMs: testStartMs,
             t1FromBefore
         });

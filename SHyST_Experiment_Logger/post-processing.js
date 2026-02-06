@@ -441,7 +441,7 @@ async function processData() {
             throw new Error(`Step 4 실패: ${e.message}`);
         }
         
-        // Step 5: Driven 압력 상승 감지
+        // Step 5: Driven 압력 상승 감지 (원본 데이터 기준)
         let driven7Channel, driven8Channel, driven7Index, driven8Index;
         let modelFrontChannel, modelFrontIndex;
         try {
@@ -458,19 +458,22 @@ async function processData() {
             modelFrontIndex = null;
             
             if (driven7Channel !== null) {
-                driven7Index = findPressureRise(filteredData.channels[`ch${driven7Channel}`], FPS);
+                const driven7Raw = uploadedExpData.channels[`ch${driven7Channel}`];
+                driven7Index = driven7Raw ? findPressureRise(driven7Raw, FPS) : null;
                 console.log('Driven7 압력 상승:', driven7Index);
             }
             
             if (driven8Channel !== null) {
-                driven8Index = findPressureRise(filteredData.channels[`ch${driven8Channel}`], FPS);
+                const driven8Raw = uploadedExpData.channels[`ch${driven8Channel}`];
+                driven8Index = driven8Raw ? findPressureRise(driven8Raw, FPS) : null;
                 console.log('Driven8 압력 상승:', driven8Index);
             }
             
             if (detectModelFront) {
                 modelFrontChannel = findChannelByDescription(uploadedDAQConnection, 'model front');
                 if (modelFrontChannel !== null) {
-                    modelFrontIndex = findPressureRise(filteredData.channels[`ch${modelFrontChannel}`], FPS);
+                    const modelFrontRaw = uploadedExpData.channels[`ch${modelFrontChannel}`];
+                    modelFrontIndex = modelFrontRaw ? findPressureRise(modelFrontRaw, FPS) : null;
                     console.log('Model front 압력 상승:', modelFrontIndex);
                 }
             }
@@ -527,6 +530,7 @@ async function processData() {
                 driven8Index,
                 modelFrontIndex: modelFrontIndex ?? null,
                 timeOffsetStartMs: sliceStartMs,
+                indicesOrigin: 'full',
                 testTimeStartMs,
                 t1FromBefore
             });
@@ -1075,7 +1079,8 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps,
         timeOffsetStartMs = -1,
         testTimeStartMs = null,
         distanceMeters = 0.5,
-        t1FromBefore = null
+        t1FromBefore = null,
+        indicesOrigin = 'slice'
     } = options;
     
     const measurements = {
@@ -1140,10 +1145,20 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps,
     }
     
     // driven7/8, model front 시간 계산
-    const offsetSec = (timeOffsetStartMs || 0) / 1000;
-    const driven7TimeSec = driven7Index !== null ? (driven7Index / fps) + offsetSec : null;
-    const driven8TimeSec = driven8Index !== null ? (driven8Index / fps) + offsetSec : null;
-    const modelFrontTimeSec = modelFrontIndex !== null ? (modelFrontIndex / fps) + offsetSec : null;
+    let driven7TimeSec = null;
+    let driven8TimeSec = null;
+    let modelFrontTimeSec = null;
+    
+    if (indicesOrigin === 'full' && driverIndex !== null) {
+        driven7TimeSec = driven7Index !== null ? (driven7Index - driverIndex) / fps : null;
+        driven8TimeSec = driven8Index !== null ? (driven8Index - driverIndex) / fps : null;
+        modelFrontTimeSec = modelFrontIndex !== null ? (modelFrontIndex - driverIndex) / fps : null;
+    } else {
+        const offsetSec = (timeOffsetStartMs || 0) / 1000;
+        driven7TimeSec = driven7Index !== null ? (driven7Index / fps) + offsetSec : null;
+        driven8TimeSec = driven8Index !== null ? (driven8Index / fps) + offsetSec : null;
+        modelFrontTimeSec = modelFrontIndex !== null ? (modelFrontIndex / fps) + offsetSec : null;
+    }
     
     if (driven8TimeSec !== null) {
         measurements.second_diaphragm_rupture = driven8TimeSec * 1000;
