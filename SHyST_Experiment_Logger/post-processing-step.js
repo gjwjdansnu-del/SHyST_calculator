@@ -545,12 +545,15 @@ function drawChannelGraphs(filteredData, daqConnection, riseIndices = null) {
         yLabel: 'Pressure [bar]'
     });
     
+    const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
+    
     drawSingleChannelGraph('driven7-preview', filteredData.channels[`ch${driven7Ch}`], {
         title: 'Driven 7',
         color: '#e74c3c',
         yLabel: 'Pressure [bar]',
         riseIndex: riseIndices?.driven7Index ?? null,
-        riseLabel: 'D7↑'
+        riseLabel: 'D7↑',
+        pressureThreshold: pressureThreshold
     });
     
     drawDriven8Graph(filteredData, daqConnection, null, riseIndices?.driven8Index ?? null);
@@ -559,6 +562,7 @@ function drawChannelGraphs(filteredData, daqConnection, riseIndices = null) {
 function drawDriven8Graph(filteredData, daqConnection, testTimeResult, riseIndex = null) {
     const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
     const data = driven8Ch !== null ? filteredData.channels[`ch${driven8Ch}`] : null;
+    const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
     
     drawSingleChannelGraph('driven8-preview', data, {
         title: 'Driven 8',
@@ -568,7 +572,8 @@ function drawDriven8Graph(filteredData, daqConnection, testTimeResult, riseIndex
         fps: step1Results.FPS,
         yLabel: 'Pressure [bar]',
         riseIndex: riseIndex,
-        riseLabel: 'D8↑'
+        riseLabel: 'D8↑',
+        pressureThreshold: pressureThreshold
     });
 }
 
@@ -671,7 +676,29 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
         ctx.fillText(options.title, canvas.width / 2, 20);
     }
     
-    // 압력 상승 표시
+    // 압력 임계값 가로선 표시
+    if (options.pressureThreshold !== null && options.pressureThreshold !== undefined) {
+        const thresholdY = margin.top + height - ((options.pressureThreshold - yMin) / yRange) * height;
+        
+        // 임계값이 그래프 범위 내에 있을 때만 표시
+        if (thresholdY >= margin.top && thresholdY <= margin.top + height) {
+            ctx.strokeStyle = 'rgba(255, 165, 0, 0.6)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
+            ctx.beginPath();
+            ctx.moveTo(margin.left, thresholdY);
+            ctx.lineTo(margin.left + width, thresholdY);
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(255, 140, 0, 0.9)';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`임계값: ${options.pressureThreshold.toFixed(2)} bar`, margin.left + 5, thresholdY - 5);
+            ctx.setLineDash([]);
+        }
+    }
+    
+    // 압력 상승 표시 (세로 점선)
     if (options.riseIndex !== null && options.riseIndex !== undefined) {
         const denom = Math.max(1, data.length - 1);
         const x = margin.left + (options.riseIndex / denom) * width;
