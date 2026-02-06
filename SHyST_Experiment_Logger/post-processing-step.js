@@ -80,6 +80,7 @@ async function processDataStep1() {
         // 그래프 그리기
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
         drawFilteredDataGraph(filteredData, uploadedDAQConnection);
+        drawChannelGraphs(filteredData, uploadedDAQConnection);
         
         // 그래프 섹션 표시
         document.getElementById('graph-section').style.display = 'block';
@@ -186,8 +187,8 @@ async function processDataStep2() {
         updateProgress(100, '✅ 모든 처리 완료!');
         updateMeasurementFields(measurements);
         
-        // 그래프에 최종 시험 구간 표시
-        drawFilteredDataGraph(filteredData, uploadedDAQConnection, testTimeResult);
+        // driven8 그래프에 최종 시험 구간 표시
+        drawDriven8Graph(filteredData, uploadedDAQConnection, testTimeResult);
         
         console.log('=== 처리 완료 ===');
         
@@ -219,20 +220,22 @@ function updateTestTimeLines() {
     document.getElementById('test-end-value').textContent = endMs.toFixed(1);
     document.getElementById('test-length-value').textContent = lengthMs.toFixed(1);
     
-    // 그래프 다시 그리기 (시작/끝 라인 포함)
+    // 그래프 다시 그리기
     if (step1Results.filteredData) {
         const tempTestTime = {
             startIndex: Math.floor((startMs + 1) / 1000 * step1Results.FPS),
             endIndex: Math.floor((endMs + 1) / 1000 * step1Results.FPS),
             testTime: lengthMs
         };
-        
-        drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
+
+        drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection);
+        drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
+        drawRmsRatioGraph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
     }
 }
 
 // 필터링된 데이터 그래프 그리기
-function drawFilteredDataGraph(filteredData, daqConnection, testTimeResult = null) {
+function drawFilteredDataGraph(filteredData, daqConnection) {
     const canvas = document.getElementById('result-preview');
     const ctx = canvas.getContext('2d');
     
@@ -341,32 +344,6 @@ function drawFilteredDataGraph(filteredData, daqConnection, testTimeResult = nul
         ctx.stroke();
     });
     
-    // 시험 시작/끝 라인 그리기
-    if (testTimeResult) {
-        const startMs = (testTimeResult.startIndex / step1Results.FPS * 1000) - 1;
-        const endMs = (testTimeResult.endIndex / step1Results.FPS * 1000) - 1;
-        
-        // 시작 라인 (빨간색)
-        const startX = margin.left + (startMs + 1) / 31 * width;
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
-        ctx.lineWidth = 3;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(startX, margin.top);
-        ctx.lineTo(startX, margin.top + height);
-        ctx.stroke();
-        
-        // 끝 라인 (파란색)
-        const endX = margin.left + (endMs + 1) / 31 * width;
-        ctx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
-        ctx.beginPath();
-        ctx.moveTo(endX, margin.top);
-        ctx.lineTo(endX, margin.top + height);
-        ctx.stroke();
-        
-        ctx.setLineDash([]);
-    }
-    
     // 범례
     ctx.font = '11px Arial';
     ctx.textAlign = 'left';
@@ -383,4 +360,286 @@ function drawFilteredDataGraph(filteredData, daqConnection, testTimeResult = nul
         ctx.fillStyle = '#000';
         ctx.fillText(label, x + 20, y);
     });
+}
+
+function drawChannelGraphs(filteredData, daqConnection) {
+    const driverCh = findChannelByDescription(daqConnection, 'driver');
+    const driven7Ch = findChannelByDescription(daqConnection, 'driven7');
+    const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
+    
+    drawSingleChannelGraph('driver-preview', filteredData.channels[`ch${driverCh}`], {
+        title: 'Driver',
+        color: '#2ecc71'
+    });
+    
+    drawSingleChannelGraph('driven7-preview', filteredData.channels[`ch${driven7Ch}`], {
+        title: 'Driven 7',
+        color: '#e74c3c'
+    });
+    
+    drawDriven8Graph(filteredData, daqConnection, null);
+}
+
+function drawDriven8Graph(filteredData, daqConnection, testTimeResult) {
+    const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
+    const data = driven8Ch !== null ? filteredData.channels[`ch${driven8Ch}`] : null;
+    
+    drawSingleChannelGraph('driven8-preview', data, {
+        title: 'Driven 8',
+        color: '#3498db',
+        showTestLines: true,
+        testTimeResult: testTimeResult,
+        fps: step1Results.FPS
+    });
+}
+
+function drawSingleChannelGraph(canvasId, data, options = {}) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    if (!data || data.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const stats = arrayMinMax(data);
+    if (stats.min === null || stats.max === null) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const margin = {left: 80, right: 40, top: 40, bottom: 50};
+    const width = canvas.width - margin.left - margin.right;
+    const height = canvas.height - margin.top - margin.bottom;
+    
+    const yMin = stats.min;
+    const yMax = stats.max;
+    const yRange = yMax - yMin || 1;
+    
+    // 축
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(margin.left, margin.top);
+    ctx.lineTo(margin.left, margin.top + height);
+    ctx.lineTo(margin.left + width, margin.top + height);
+    ctx.stroke();
+    
+    // X축 레이블
+    ctx.fillStyle = '#000';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 30; i += 5) {
+        const x = margin.left + ((i + 1) / 31) * width;
+        const y = margin.top + height;
+        ctx.fillText(`${i}`, x, y + 18);
+    }
+    ctx.fillText('Time (ms)', margin.left + width / 2, canvas.height - 10);
+    
+    // Y축 레이블
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+        const value = yMin + (yRange * i / 4);
+        const y = margin.top + height - (height * i / 4);
+        ctx.fillText(value.toFixed(2), margin.left - 10, y + 5);
+    }
+    
+    // 데이터 플롯
+    const color = options.color || '#3498db';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    
+    const denom = Math.max(1, data.length - 1);
+    for (let i = 0; i < data.length; i++) {
+        const x = margin.left + (i / denom) * width;
+        const y = margin.top + height - ((data[i] - yMin) / yRange) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    
+    ctx.stroke();
+    
+    // 제목
+    if (options.title) {
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(options.title, canvas.width / 2, 20);
+    }
+    
+    // 시험 시작/끝 라인 (driven8만)
+    if (options.showTestLines && options.testTimeResult && options.fps) {
+        const startMs = (options.testTimeResult.startIndex / options.fps * 1000) - 1;
+        const endMs = (options.testTimeResult.endIndex / options.fps * 1000) - 1;
+        
+        ctx.setLineDash([5, 5]);
+        
+        const startX = margin.left + (startMs + 1) / 31 * width;
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(startX, margin.top);
+        ctx.lineTo(startX, margin.top + height);
+        ctx.stroke();
+        
+        const endX = margin.left + (endMs + 1) / 31 * width;
+        ctx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
+        ctx.beginPath();
+        ctx.moveTo(endX, margin.top);
+        ctx.lineTo(endX, margin.top + height);
+        ctx.stroke();
+        
+        ctx.setLineDash([]);
+    }
+}
+
+function drawRmsRatioGraph(filteredData, daqConnection, testTimeResult) {
+    const canvas = document.getElementById('rms-preview');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
+    const data = driven8Ch !== null ? filteredData.channels[`ch${driven8Ch}`] : null;
+    
+    if (!data || data.length === 0 || !testTimeResult || !step1Results.FPS) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const fps = step1Results.FPS;
+    const startIndex = testTimeResult.startIndex;
+    const maxWindowMs = 10;
+    const points = 300;
+    
+    const rmsPoints = [];
+    for (let i = 1; i <= points; i++) {
+        const windowMs = (i / points) * maxWindowMs;
+        const windowSamples = Math.max(2, Math.floor(windowMs / 1000 * fps));
+        const endIndex = Math.min(data.length, startIndex + windowSamples);
+        const window = data.slice(startIndex, endIndex);
+        
+        if (window.length < 2) continue;
+        const mean = average(window);
+        const std = standardDeviation(window);
+        if (!mean || !isFinite(mean) || !isFinite(std)) continue;
+        
+        const rmsPercent = Math.abs(std / mean) * 100;
+        rmsPoints.push({ windowMs, rmsPercent });
+    }
+    
+    if (rmsPoints.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('표시할 데이터가 없습니다', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const margin = {left: 80, right: 40, top: 40, bottom: 60};
+    const width = canvas.width - margin.left - margin.right;
+    const height = canvas.height - margin.top - margin.bottom;
+    
+    const rmsValues = rmsPoints.map(p => p.rmsPercent);
+    const rmsStats = arrayMinMax(rmsValues);
+    const xMin = 0;
+    const xMax = Math.max(rmsStats.max || 1, 5);
+    const yMin = 0;
+    const yMax = maxWindowMs;
+    
+    // 축
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(margin.left, margin.top);
+    ctx.lineTo(margin.left, margin.top + height);
+    ctx.lineTo(margin.left + width, margin.top + height);
+    ctx.stroke();
+    
+    // X축 레이블 (RMS %)
+    ctx.fillStyle = '#000';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 5; i++) {
+        const value = xMin + (xMax - xMin) * (i / 5);
+        const x = margin.left + width * (i / 5);
+        const y = margin.top + height;
+        ctx.fillText(value.toFixed(1), x, y + 20);
+    }
+    ctx.fillText('RMS / Mean [%]', margin.left + width / 2, canvas.height - 10);
+    
+    // Y축 레이블 (ms)
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+        const value = yMin + (yMax - yMin) * (i / 5);
+        const y = margin.top + height - height * (i / 5);
+        ctx.fillText(value.toFixed(1), margin.left - 10, y + 5);
+    }
+    
+    // 그래프
+    ctx.strokeStyle = '#9b59b6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rmsPoints.forEach((p, idx) => {
+        const x = margin.left + ((p.rmsPercent - xMin) / (xMax - xMin)) * width;
+        const y = margin.top + height - ((p.windowMs - yMin) / (yMax - yMin)) * height;
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    
+    // 기준선 (3%)
+    const refX = margin.left + ((3 - xMin) / (xMax - xMin)) * width;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(refX, margin.top);
+    ctx.lineTo(refX, margin.top + height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // 현재 시험 길이 표시
+    const currentLen = Math.min(Math.max(testTimeResult.testTime, 0), maxWindowMs);
+    const currentY = margin.top + height - ((currentLen - yMin) / (yMax - yMin)) * height;
+    ctx.strokeStyle = 'rgba(0, 128, 0, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(margin.left, currentY);
+    ctx.lineTo(margin.left + width, currentY);
+    ctx.stroke();
+    
+    // 현재 길이의 RMS 점 표시
+    const nearest = rmsPoints.reduce((prev, cur) => {
+        return Math.abs(cur.windowMs - currentLen) < Math.abs(prev.windowMs - currentLen) ? cur : prev;
+    }, rmsPoints[0]);
+    const markerX = margin.left + ((nearest.rmsPercent - xMin) / (xMax - xMin)) * width;
+    const markerY = margin.top + height - ((nearest.windowMs - yMin) / (yMax - yMin)) * height;
+    ctx.fillStyle = '#27ae60';
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 제목
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('시험 길이별 RMS/Mean 그래프 (Driven8)', canvas.width / 2, 20);
 }

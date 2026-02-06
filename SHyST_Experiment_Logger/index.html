@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.6</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.7</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -232,7 +232,20 @@
 
                 <div class="form-section" id="graph-section" style="display: none;">
                     <h3>4. 필터링된 데이터 그래프</h3>
+                    <h4 style="margin: 10px 0;">전체 채널</h4>
                     <canvas id="result-preview" width="1200" height="600" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                    
+                    <h4 style="margin: 20px 0 10px;">Driver</h4>
+                    <canvas id="driver-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                    
+                    <h4 style="margin: 20px 0 10px;">Driven 7</h4>
+                    <canvas id="driven7-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                    
+                    <h4 style="margin: 20px 0 10px;">Driven 8 (시험 구간 표시)</h4>
+                    <canvas id="driven8-preview" width="1200" height="260" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                    
+                    <h4 style="margin: 20px 0 10px;">시험 길이 RMS 그래프</h4>
+                    <canvas id="rms-preview" width="1200" height="400" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
                     
                     <div style="margin-top: 20px; padding: 20px; background: #f5f5f5; border-radius: 8px;">
                         <h4 style="margin-top: 0;">시험 시작/끝점 조정</h4>
