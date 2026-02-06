@@ -1,9 +1,7 @@
 // 간단한 파일 업로드 처리
 console.log('=== simple-upload.js 로드됨 ===');
 
-// 전역 변수
-let uploadedExpData = null;
-let uploadedDAQConnection = null;
+// 전역 변수는 post-processing.js에서 관리됨
 
 // 페이지 로드 후 이벤트 리스너 등록
 document.addEventListener('DOMContentLoaded', function() {
