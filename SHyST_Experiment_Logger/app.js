@@ -403,9 +403,6 @@ async function calculateFlowConditions() {
             gamma: g2, cp: cp2, a: a2, s: s2, V: state2Raw.u, M: state2Raw.u / a2
         };
         
-        // Stage 4: Driver 초기 (p4는 측정 안 되므로 일단 null)
-        const stage4 = null;
-        
         // Stage 5: 반사 충격파 후
         const p2_p1 = state2Raw.p / p1;
         const state5Raw = calcReflectedShock(state2Raw.p, state2Raw.t, state2Raw.rho, state2Raw.u, p2_p1, drivenGas, mw1, R1, isMix ? drivenProps.X_He : null);
@@ -441,12 +438,20 @@ async function calculateFlowConditions() {
             gamma: g5s, cp: cp5s, a: a5s, s: s5s, V: 0, M: 0
         };
         
-        // Stage 7: 등엔트로피 팽창
+        // Stage 6: 노즐 목 (M=1)
+        const state6 = calcState7(stage5s, 1.0, drivenProps, drivenGas);
+        
+        if (!state6) {
+            alert('State 6 (노즐 목) 계산에 실패했습니다.');
+            return;
+        }
+        
+        // Stage 7: 시험부 (등엔트로피 팽창)
         const M7 = targetMach || 6.0;
         const state7 = calcState7(stage5s, M7, drivenProps, drivenGas);
         
         if (!state7) {
-            alert('State 7 계산에 실패했습니다.');
+            alert('State 7 (시험부) 계산에 실패했습니다.');
             return;
         }
         
@@ -454,9 +459,9 @@ async function calculateFlowConditions() {
         currentExperiment.calculation.stages = {
             stage1: stage1,
             stage2: stage2,
-            stage4: stage4,
             stage5: stage5,
             stage5s: stage5s,
+            stage6: state6,
             stage7: state7
         };
         
@@ -492,11 +497,6 @@ function displayCalculationResults(stages) {
         gridDiv.appendChild(createStageCard('Stage 2 (충격파 후)', stages.stage2));
     }
     
-    // Stage 4
-    if (stages.stage4) {
-        gridDiv.appendChild(createStageCard('Stage 4 (Driver 초기)', stages.stage4));
-    }
-    
     // Stage 5
     if (stages.stage5) {
         gridDiv.appendChild(createStageCard('Stage 5 (반사 충격파)', stages.stage5));
@@ -505,6 +505,11 @@ function displayCalculationResults(stages) {
     // Stage 5s
     if (stages.stage5s) {
         gridDiv.appendChild(createStageCard('Stage 5s (안정화)', stages.stage5s));
+    }
+    
+    // Stage 6
+    if (stages.stage6) {
+        gridDiv.appendChild(createStageCard('Stage 6 (노즐 목, M=1)', stages.stage6));
     }
     
     // Stage 7
