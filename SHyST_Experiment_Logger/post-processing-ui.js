@@ -200,7 +200,10 @@ function downloadConvertedData() {
     
     const wb = XLSX.utils.book_new();
     
-    const data = convertChannelsToMatrix(processedResults.convertedData.channels);
+    const data = convertChannelsToMatrix(
+        processedResults.convertedData.channels,
+        (channelName) => getConvertedHeader(channelName, uploadedDAQConnection)
+    );
     const ws = XLSX.utils.aoa_to_sheet(data);
     
     XLSX.utils.book_append_sheet(wb, ws, "Converted Data");
@@ -238,15 +241,10 @@ function downloadFinalResults() {
     
     const wb = XLSX.utils.book_new();
     
-    // Sheet 1: 필터링된 시계열 데이터
-    const timeSeriesData = convertChannelsToMatrix(processedResults.filteredData.channels);
-    const ws1 = XLSX.utils.aoa_to_sheet(timeSeriesData);
-    XLSX.utils.book_append_sheet(wb, ws1, "Time Series");
-    
-    // Sheet 2: 실험 요약 및 측정값
-    const summary = createSummarySheet();
-    const ws2 = XLSX.utils.aoa_to_sheet(summary);
-    XLSX.utils.book_append_sheet(wb, ws2, "Summary");
+    // 단일 시트: 최종 결과(1행)
+    const summary = createParametersSheet();
+    const ws1 = XLSX.utils.aoa_to_sheet(summary);
+    XLSX.utils.book_append_sheet(wb, ws1, "Summary");
     
     const filename = `exp${currentExperiment.expNumber}_final.xlsx`;
     XLSX.writeFile(wb, filename);
@@ -267,7 +265,7 @@ function downloadAllResults() {
 // 3. 데이터 변환 유틸리티
 // ============================================
 
-function convertChannelsToMatrix(channels) {
+function convertChannelsToMatrix(channels, headerMapper = null) {
     // 채널 데이터를 2D 배열로 변환 (엑셀 형식)
     
     const channelNames = Object.keys(channels).sort((a, b) => {
@@ -279,7 +277,12 @@ function convertChannelsToMatrix(channels) {
     if (channelNames.length === 0) return [[]];
     
     // 헤더 행
-    const header = channelNames.map(name => name.replace('ch', '전압_'));
+    const header = channelNames.map(name => {
+        if (typeof headerMapper === 'function') {
+            return headerMapper(name);
+        }
+        return name.replace('ch', '전압_');
+    });
     
     // 데이터 행
     const numSamples = channels[channelNames[0]].length;
@@ -338,6 +341,60 @@ function createSummarySheet() {
     ];
     
     return summary;
+}
+
+function getConvertedHeader(channelName, daqConnection) {
+    const portNum = parseInt(channelName.replace('ch', ''), 10);
+    const config = daqConnection?.find(c => c.channel === portNum);
+    const base = `전압_${portNum}`;
+    
+    if (!config) return `${base}_value`;
+    
+    const cal = String(config.calibration || '').toLowerCase();
+    const pn = String(config.partNumber || config.PN || '').toLowerCase();
+    const type = String(config.type || '').toLowerCase();
+    
+    const isTemp = type === 't' || pn.includes('thermocouple') || cal === 'e' || cal === 'av+b';
+    const unit = isTemp ? (cal === 'e' ? 'K' : '°C') : 'bar';
+    const label = isTemp ? 'temperature' : 'pressure';
+    const desc = config.description ? `_${config.description}` : '';
+    
+    return `${base}${desc}_${label} [${unit}]`;
+}
+
+function createParametersSheet() {
+    const m = processedResults.measurements;
+    const headers = [
+        'p4_avg[bar]',
+        'p5_avg[bar]',
+        'p5_std[bar]',
+        'test_time[ms]',
+        'shock_speed[m/s]',
+        'output_delay_time[ms]',
+        'output_ready_time[ms]',
+        'first diaphragm rupture[ms]',
+        'second diaphragm rupture[ms]',
+        'test time start(nozzle reservoir)[ms]',
+        'test time end(nozzle reservoir)[ms]',
+        'cone_shock_time[ms]'
+    ];
+    
+    const row = [
+        m.p4_avg,
+        m.p5_avg,
+        m.p5_std,
+        m.test_time,
+        m.shock_speed,
+        m.output_delay_time,
+        m.output_ready_time,
+        m.first_diaphragm_rupture,
+        m.second_diaphragm_rupture,
+        m.test_time_start,
+        m.test_time_end,
+        m.model_front_time
+    ];
+    
+    return [headers, row];
 }
 
 // ============================================
