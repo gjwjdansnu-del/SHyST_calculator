@@ -932,17 +932,17 @@ function applyAllFilters(convertedData, daqConnection, fps) {
         let filterApplied = 'None';
         
         // 원본 Python 코드와 동일: PN 값에 따라 필터 적용
-        const pnValue = config.PN;
+        const pnValueRaw = (config.partNumber || config.PN || '').toString().trim().toLowerCase();
         
-        if (pnValue === 'medtherm thermocouple') {
+        if (pnValueRaw.includes('medtherm') && pnValueRaw.includes('thermocouple')) {
             // Moving Average (window_size=300)
             filtered = movingAverage(data, 300);
             filterApplied = 'MA (300샘플)';
-        } else if (pnValue === 'PCB 113B22') {
+        } else if (pnValueRaw.includes('pcb') && pnValueRaw.includes('113b22')) {
             // Low Pass Filter (cutoff=500kHz)
             filtered = lowpassFilter(data, 500000, fps);
             filterApplied = 'LP (500kHz)';
-        } else if (pnValue === 'PCB 132B38') {
+        } else if (pnValueRaw.includes('pcb') && pnValueRaw.includes('132b38')) {
             // Band Pass Filter (11kHz - 1MHz)
             filtered = bandpassFilter(data, 11000, 1000000, fps);
             filterApplied = 'BP (11kHz-1MHz)';
