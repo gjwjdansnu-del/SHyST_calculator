@@ -221,7 +221,8 @@ async function processDataStep2() {
             driven8Index
         };
         drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, riseIndices);
-        drawDriven8Graph(filteredData, uploadedDAQConnection, testTimeResult);
+        drawChannelGraphs(step1Results.filteredData, uploadedDAQConnection, riseIndices);
+        drawDriven8Graph(filteredData, uploadedDAQConnection, testTimeResult, driven8Index);
         
         console.log('=== 처리 완료 ===');
         
@@ -266,7 +267,8 @@ function updateTestTimeLines() {
             driven8Index: processedResults?.driven8Index ?? null
         };
         drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, tempIndices);
-        drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
+        drawChannelGraphs(step1Results.filteredData, uploadedDAQConnection, tempIndices);
+        drawDriven8Graph(step1Results.filteredData, uploadedDAQConnection, tempTestTime, tempIndices.driven8Index);
         drawRmsRatioGraph(step1Results.filteredData, uploadedDAQConnection, tempTestTime);
     }
 }
@@ -449,13 +451,12 @@ function drawFilteredDataGraph(filteredData, daqConnection, riseIndices = null) 
     });
     
     // 압력 상승 표시 (driven7, driven8)
-    if (riseIndices && step1Results?.FPS) {
-        const fps = step1Results.FPS;
+    if (riseIndices) {
         const numSamples = filteredData.numSamples;
+        const denom = Math.max(1, numSamples - 1);
         
         if (riseIndices.driven7Index !== null) {
-            const timeMs = (riseIndices.driven7Index / numSamples) * 31 - 1;
-            const x = margin.left + ((timeMs + 1) / 31) * width;
+            const x = margin.left + (riseIndices.driven7Index / denom) * width;
             ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 3]);
@@ -471,50 +472,7 @@ function drawFilteredDataGraph(filteredData, daqConnection, riseIndices = null) 
         }
         
         if (riseIndices.driven8Index !== null) {
-            const timeMs = (riseIndices.driven8Index / numSamples) * 31 - 1;
-            const x = margin.left + ((timeMs + 1) / 31) * width;
-            ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 3]);
-            ctx.beginPath();
-            ctx.moveTo(x, margin.top);
-            ctx.lineTo(x, margin.top + height);
-            ctx.stroke();
-            
-            ctx.fillStyle = 'rgba(52, 152, 219, 0.9)';
-            ctx.font = 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('D8↑', x, margin.top - 5);
-        }
-        
-        ctx.setLineDash([]);
-    }
-    
-    // 압력 상승 표시 (driven7, driven8)
-    if (riseIndices && step1Results?.FPS) {
-        const fps = step1Results.FPS;
-        const numSamples = filteredData.numSamples;
-        
-        if (riseIndices.driven7Index !== null) {
-            const timeMs = (riseIndices.driven7Index / numSamples) * 31 - 1;
-            const x = margin.left + ((timeMs + 1) / 31) * width;
-            ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 3]);
-            ctx.beginPath();
-            ctx.moveTo(x, margin.top);
-            ctx.lineTo(x, margin.top + height);
-            ctx.stroke();
-            
-            ctx.fillStyle = 'rgba(231, 76, 60, 0.9)';
-            ctx.font = 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('D7↑', x, margin.top - 5);
-        }
-        
-        if (riseIndices.driven8Index !== null) {
-            const timeMs = (riseIndices.driven8Index / numSamples) * 31 - 1;
-            const x = margin.left + ((timeMs + 1) / 31) * width;
+            const x = margin.left + (riseIndices.driven8Index / denom) * width;
             ctx.strokeStyle = 'rgba(52, 152, 219, 0.7)';
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 3]);
@@ -558,7 +516,7 @@ function isTemperatureConfig(config) {
     return type === 't' || pn.includes('thermocouple') || cal === 'e' || cal === 'av+b';
 }
 
-function drawChannelGraphs(filteredData, daqConnection) {
+function drawChannelGraphs(filteredData, daqConnection, riseIndices = null) {
     const driverCh = findChannelByDescription(daqConnection, 'driver');
     const driven7Ch = findChannelByDescription(daqConnection, 'driven7');
     const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
@@ -572,13 +530,15 @@ function drawChannelGraphs(filteredData, daqConnection) {
     drawSingleChannelGraph('driven7-preview', filteredData.channels[`ch${driven7Ch}`], {
         title: 'Driven 7',
         color: '#e74c3c',
-        yLabel: 'Pressure [bar]'
+        yLabel: 'Pressure [bar]',
+        riseIndex: riseIndices?.driven7Index ?? null,
+        riseLabel: 'D7↑'
     });
     
-    drawDriven8Graph(filteredData, daqConnection, null);
+    drawDriven8Graph(filteredData, daqConnection, null, riseIndices?.driven8Index ?? null);
 }
 
-function drawDriven8Graph(filteredData, daqConnection, testTimeResult) {
+function drawDriven8Graph(filteredData, daqConnection, testTimeResult, riseIndex = null) {
     const driven8Ch = findChannelByDescription(daqConnection, 'driven8');
     const data = driven8Ch !== null ? filteredData.channels[`ch${driven8Ch}`] : null;
     
@@ -588,7 +548,9 @@ function drawDriven8Graph(filteredData, daqConnection, testTimeResult) {
         showTestLines: true,
         testTimeResult: testTimeResult,
         fps: step1Results.FPS,
-        yLabel: 'Pressure [bar]'
+        yLabel: 'Pressure [bar]',
+        riseIndex: riseIndex,
+        riseLabel: 'D8↑'
     });
 }
 
@@ -689,6 +651,25 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
         ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(options.title, canvas.width / 2, 20);
+    }
+    
+    // 압력 상승 표시
+    if (options.riseIndex !== null && options.riseIndex !== undefined) {
+        const denom = Math.max(1, data.length - 1);
+        const x = margin.left + (options.riseIndex / denom) * width;
+        ctx.strokeStyle = 'rgba(231, 76, 60, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, margin.top);
+        ctx.lineTo(x, margin.top + height);
+        ctx.stroke();
+        
+        ctx.fillStyle = 'rgba(231, 76, 60, 0.9)';
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(options.riseLabel || 'Rise', x, margin.top - 5);
+        ctx.setLineDash([]);
     }
     
     // 시험 시작/끝 라인 (driven8만)
