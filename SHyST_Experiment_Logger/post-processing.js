@@ -972,16 +972,13 @@ function applyAllFilters(convertedData, daqConnection, fps) {
 // ============================================
 
 function findPressureRise(data, fps, options = {}) {
-    // 원본 Python 코드의 find_change_index 함수와 동일
+    // Python 코드의 find_change_index 함수 방식 그대로 구현
     // direction='increase', window_size=1, gradient_check_size=10000
     if (!data || data.length === 0) return null;
     
     const {
         startIndex = 0,
-        thresholdCoeff = 3,
-        baselineMs = 5,
-        stdCoeff = 3,
-        sustainMs = 0.3
+        thresholdCoeff = 5  // Python 기본값
     } = options;
     const source = data.slice(Math.max(0, startIndex));
     
@@ -991,8 +988,8 @@ function findPressureRise(data, fps, options = {}) {
     const filtered = source; // window_size=1이므로 원본 그대로
     
     // 2. 초반 10000개 기울기 계산
-    const gradientCheckSize = 10000;
-    const initialData = filtered.slice(0, gradientCheckSize);
+    const gradientCheckSize = Math.min(10000, filtered.length - 1);
+    const initialData = filtered.slice(0, gradientCheckSize + 1);
     
     const gradient = [];
     for (let i = 1; i < initialData.length; i++) {
@@ -1003,92 +1000,24 @@ function findPressureRise(data, fps, options = {}) {
     const maxGradient = gradStats.max ?? 0;
     const minGradient = gradStats.min ?? 0;
     
-    // 3. 임계값: 최대/최소 기울기 절댓값의 N배
+    // 3. 임계값: 최대/최소 기울기 절댓값의 5배 (Python과 동일)
     const threshold = thresholdCoeff * Math.max(Math.abs(maxGradient), Math.abs(minGradient));
     
-    console.log('압력 상승 임계값:', threshold);
+    console.log(`압력 상승 임계값: ${threshold.toFixed(6)} (계수: ${thresholdCoeff})`);
     
-    const baselineSamples = Math.min(filtered.length, Math.max(1000, Math.floor(fps * (baselineMs / 1000))));
-    const baseline = filtered.slice(0, baselineSamples);
-    const baselineMean = average(baseline);
-    const baselineStd = standardDeviation(baseline);
-    const valueThreshold = (baselineMean !== null && baselineStd !== null)
-        ? (baselineMean + stdCoeff * baselineStd)
-        : null;
-    const sustainSamples = Math.max(2, Math.floor(fps * (sustainMs / 1000)));
-    
-    // 4. 전체 기울기 계산 + 최대/최소 추적
-    let maxIdx = null;
-    let minIdx = null;
-    let maxVal = -Infinity;
-    let minVal = Infinity;
-    
+    // 4. 전체 기울기 계산 후 첫 번째 threshold 초과 지점 찾기
     for (let i = 1; i < filtered.length; i++) {
         const g = filtered[i] - filtered[i-1];
-        if (g > maxVal) {
-            maxVal = g;
-            maxIdx = i - 1;
-        }
-        if (g < minVal) {
-            minVal = g;
-            minIdx = i - 1;
-        }
         
         if (g > threshold) {
-            const candidate = i - 1;
-            if (valueThreshold !== null) {
-                const window = filtered.slice(candidate, Math.min(filtered.length, candidate + sustainSamples));
-                const windowAvg = average(window);
-                if (windowAvg !== null && windowAvg > valueThreshold) {
-                    const index = candidate + startIndex;
-                    console.log('압력 상승 감지:', index, 'gradient:', g);
-                    return index;
-                }
-            } else {
-                const index = candidate + startIndex;
-                console.log('압력 상승 감지:', index, 'gradient:', g);
-                return index;
-            }
+            const absoluteIndex = startIndex + (i - 1);
+            console.log(`✅ 압력 상승 감지: index=${absoluteIndex}, gradient=${g.toFixed(6)}, threshold=${threshold.toFixed(6)}`);
+            return absoluteIndex;
         }
     }
     
-    // 5. fallback: 베이스라인 평균+표준편차 기준
-    if (valueThreshold !== null && isFinite(valueThreshold)) {
-        for (let i = 0; i < filtered.length; i++) {
-            if (filtered[i] > valueThreshold) {
-                const window = filtered.slice(i, Math.min(filtered.length, i + sustainSamples));
-                const windowAvg = average(window);
-                if (windowAvg !== null && windowAvg > valueThreshold) {
-                    const index = i + startIndex;
-                    console.warn('⚠️ 임계값 초과 지점이 없어 값 기준으로 대체:', {
-                        index,
-                        threshold: valueThreshold
-                    });
-                    return index;
-                }
-            }
-        }
-    }
-    
-    // 6. 마지막 fallback: 최대 기울기 지점 사용
-    if (maxIdx !== null && isFinite(maxVal) && maxVal > 0) {
-        console.warn('⚠️ 임계값 초과 지점이 없어 최대 기울기로 대체:', {
-            index: maxIdx + startIndex,
-            gradient: maxVal
-        });
-        return maxIdx + startIndex;
-    }
-    
-    // 7. 감소 방향이 더 뚜렷한 경우
-    if (minIdx !== null && isFinite(minVal) && Math.abs(minVal) > Math.abs(maxVal)) {
-        console.warn('⚠️ 상승이 아닌 감소가 더 뚜렷합니다. 감소 최대 지점 반환:', {
-            index: minIdx,
-            gradient: minVal
-        });
-        return minIdx;
-    }
-    
-    console.log('압력 상승을 찾을 수 없습니다.');
+    // 못 찾으면 null
+    console.log('⚠️ 압력 상승을 찾을 수 없습니다. (threshold 초과 지점 없음)');
     return null;
 }
 
