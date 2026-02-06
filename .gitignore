@@ -16,6 +16,7 @@ ENV/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
 
 # IDEs
 .vscode/
@@ -35,12 +36,44 @@ ENV/
 # Node modules (if any)
 node_modules/
 
-# Excel temporary files
+# Excel files (민감한 실험 데이터)
+*.xlsx
+*.xls
 ~$*.xlsx
 ~$*.xls
 
-# Database files (optional - remove if you want to include sample data)
-# *.json
+# Python scripts (개발용)
+*.py
+
+# 개발/테스트용 폴더 및 파일
+post processing code/
+ShockTube_Calculator_Web/
+ShockTube_Calculator_Web_v2/
+ShockTube_Calculator_Web_v3/
+ShockTube_Calculator_Web_v4/
+deploy.sh
+GITHUB_SETUP.md
+배포_가이드.md
+
+# 개발 문서 (내부용)
+SHyST_Experiment_Logger/DATA_STRUCTURE.md
+SHyST_Experiment_Logger/DEBUGGING_GUIDE.md
+SHyST_Experiment_Logger/IMPLEMENTATION_SUMMARY.md
+SHyST_Experiment_Logger/PORT_MAPPING_GUIDE.md
+SHyST_Experiment_Logger/FIX_SUMMARY_KR.md
+SHyST_Experiment_Logger/README_POST_PROCESSING.md
+SHyST_Experiment_Logger/USAGE_GUIDE_KR.md
+
+# 테스트 파일
+SHyST_Experiment_Logger/FILE_UPLOAD_TEST.html
+SHyST_Experiment_Logger/test-upload.html
+SHyST_Experiment_Logger/simple-upload.js
+
+# 실험 데이터 (민감 정보)
+SHyST_Experiment_Logger/experiments_data.json
+
+# Database files
+*.json
 
 # Large data files
 *.zip
