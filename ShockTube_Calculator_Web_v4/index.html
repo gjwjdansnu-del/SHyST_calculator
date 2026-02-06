@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APL SHyST Calculator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 비밀번호 보호 화면 -->
+    <div id="password-screen" class="password-screen">
+        <div class="password-box">
+            <h1>🔒 APL SHyST Calculator</h1>
+            <p>이 사이트는 비밀번호로 보호되어 있습니다.</p>
+            <input type="password" id="password-input" placeholder="비밀번호 입력" onkeypress="if(event.key==='Enter') checkPassword()">
+            <button onclick="checkPassword()">접속</button>
+            <p id="password-error" class="password-error"></p>
+        </div>
+    </div>
+
+    <div class="container" id="main-content" style="display: none;">
+        <header>
+            <h1>🚀 APL SHyST Calculator</h1>
+            <p class="subtitle">해석해 + 1D Euler 시뮬레이션 (HLLC Solver)</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="input-group driver-group">
+                    <h2>🔴 Driver (고압부)</h2>
+                    <div class="form-row">
+                        <label for="driver-gas">가스 종류</label>
+                        <select id="driver-gas" onchange="toggleMixRatio()">
+                            <option value="he">Helium (헬륨)</option>
+                            <option value="h2">Hydrogen (수소)</option>
+                            <option value="air">Air (공기)</option>
+                            <option value="ar">Argon (아르곤)</option>
+                            <option value="mix" selected>Air/He 혼합</option>
+                        </select>
+                    </div>
+                    <div class="form-row" id="mix-ratio-row">
+                        <label for="he-ratio">He 몰분율</label>
+                        <input type="number" id="he-ratio" value="0.99" min="0" max="1" step="0.01">
+                        <span class="unit">(0~1)</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-p">압력</label>
+                        <input type="number" id="driver-p" value="120" min="1" step="1">
+                        <span class="unit">bar</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-t">온도</label>
+                        <input type="number" id="driver-t" value="400" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group driven-group">
+                    <h2>🔵 Driven (저압부)</h2>
+                    <div class="form-row">
+                        <label for="driven-gas">가스 종류</label>
+                        <select id="driven-gas">
+                            <option value="air">Air (공기)</option>
+                            <option value="co2">CO₂ (이산화탄소)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-p">압력</label>
+                        <input type="number" id="driven-p" value="1.2" min="0.01" step="0.1">
+                        <span class="unit">bar</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-t">온도</label>
+                        <input type="number" id="driven-t" value="300" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group geometry-group">
+                    <h2>📐 튜브 설정</h2>
+                    <div class="form-row">
+                        <label for="tube-length">튜브 길이</label>
+                        <input type="number" id="tube-length" value="11.5" min="1" step="0.5">
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="diaphragm">격막 위치</label>
+                        <input type="number" id="diaphragm" value="3.0" min="0.1" step="0.1">
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="end-time">시뮬레이션 시간</label>
+                        <input type="number" id="end-time" value="20" min="1" step="1">
+                        <span class="unit">ms</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="nx">격자 수</label>
+                        <input type="number" id="nx" value="700" min="100" step="100">
+                        <span class="unit">cells</span>
+                    </div>
+                </div>
+
+                <div class="input-group nozzle-settings">
+                    <h2>🔷 노즐 팽창 (State 7)</h2>
+                    <div class="form-row">
+                        <label for="nozzle-mach">팽창 후 마하수</label>
+                        <input type="number" id="nozzle-mach" value="6.76" min="1.0" step="0.01">
+                        <span class="unit">M₇</span>
+                    </div>
+                </div>
+
+                <div class="input-group solver-settings">
+                    <h2>⚙️ 수렴 설정</h2>
+                    <div class="form-row">
+                        <label for="initial-mach">초기 마하수</label>
+                        <input type="number" id="initial-mach" value="3.0" min="1.1" step="0.5">
+                    </div>
+                </div>
+
+                <button class="calculate-btn" onclick="calculate()">
+                    🔬 해석해 계산
+                </button>
+                
+                <button class="simulate-btn" onclick="runSimulation()">
+                    ▶️ 시뮬레이션 실행
+                </button>
+                
+                
+                <button class="flow-condition-btn" onclick="openFlowConditionFinder()">
+                    🔬 테일러드 유동조건 산출기
+                </button>
+            </div>
+
+            <div class="output-section">
+                <!-- 해석해 계산 결과 -->
+                <h2>📊 해석해 결과 (Analytic Solution)</h2>
+                <div id="convergence-info" class="convergence-info"></div>
+                <div id="results" class="results-grid">
+                    <p class="placeholder">입력값을 설정하고 "해석해 계산" 버튼을 눌러주세요.</p>
+                </div>
+                
+                <!-- 테일러드 분석 결과 (결과 그리드 안에 표시) -->
+                <div id="tailored-section" class="tailored-section-inline" style="display: none;">
+                    <h3 class="tailored-inline-title">🎯 테일러드 조건 분석 (Z₂ ≈ Z₃)</h3>
+                    <div id="tailored-result" class="tailored-result"></div>
+                </div>
+                
+                <!-- 시뮬레이션 결과 -->
+                <div id="simulation-section" class="simulation-section" style="display: none;">
+                    <h2>🎬 시뮬레이션 결과 (1D Euler - HLLC)</h2>
+                    
+                    <!-- 진행 상태 -->
+                    <div id="sim-progress" class="sim-progress" style="display: none;">
+                        <div class="progress-container">
+                            <div class="progress-bar" id="progress-bar"></div>
+                        </div>
+                        <div class="progress-text" id="progress-text">시뮬레이션 준비 중...</div>
+                        <div class="progress-details">
+                            <span id="progress-time">t = 0.00 ms</span>
+                            <span id="progress-remaining">남은 시간: 계산 중...</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 시뮬레이션 GIF들 -->
+                    <div id="sim-results" class="sim-results" style="display: none;">
+                        <div class="sim-grid">
+                            <!-- 메인 시뮬레이션 GIF -->
+                            <div class="sim-card main-gif">
+                                <h3>📈 시뮬레이션 애니메이션</h3>
+                                <div class="gif-container">
+                                    <canvas id="sim-gif-canvas" width="800" height="500"></canvas>
+                                </div>
+                                <div class="gif-controls">
+                                    <button onclick="toggleGifPlay()" id="gif-play-btn">⏸️ 일시정지</button>
+                                    <button onclick="resetGif()">🔄 처음부터</button>
+                                    <span id="gif-frame-info">Frame: 0 / 0</span>
+                                </div>
+                                <div class="timeline-container">
+                                    <span class="timeline-label">t = <span id="timeline-time">0.00</span> ms</span>
+                                    <input type="range" id="timeline-slider" min="0" max="100" value="0" 
+                                           oninput="onTimelineChange(this.value)">
+                                </div>
+                            </div>
+                            
+                            <!-- x-t 다이어그램 -->
+                            <div class="sim-card xt-diagram">
+                                <h3>🗺️ x-t 다이어그램</h3>
+                                <canvas id="xt-canvas" width="900" height="1200"></canvas>
+                            </div>
+                            
+                            <!-- 벽면 히스토리 -->
+                            <div class="sim-card wall-history">
+                                <h3>📊 끝점 (x = L) 시간 이력</h3>
+                                <canvas id="wall-canvas" width="1200" height="1000"></canvas>
+                                <button class="test-time-btn" onclick="openTestTimeSelector()">
+                                    ⏱️ 시험시간 선택하기
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 최적 조성 탐색 결과 -->
+            </div>
+        </main>
+
+        <footer>
+            <p>SNU Hypersonic Shock Tunnel Calculator</p>
+            <p class="ref">해석해 + 1D Euler 시뮬레이션 | HLLC Riemann Solver</p>
+            <p class="credits">
+                Web Application by <strong>Jungmu Hur</strong> | 1D Simulation Code by <strong>Hyunseob Lee</strong>
+            </p>
+            <p class="institution">
+                Aerospace Propulsion Laboratory, Seoul National University
+            </p>
+        </footer>
+    </div>
+
+    <!-- 테일러드 유동조건 산출기 모달 -->
+    <div id="flow-condition-modal" class="modal" style="display: none;">
+        <div class="modal-content flow-condition-modal-content">
+            <div class="modal-header">
+                <h2>🔬 테일러드 유동조건 산출기</h2>
+                <button class="modal-close" onclick="closeFlowConditionFinder()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="flow-condition-grid-3col">
+                    <!-- 입력 섹션 -->
+                    <div class="fc-input-section fc-compact">
+                        <h3>🎯 목표 유동조건 (State 7)</h3>
+                        
+                        <div class="fc-form-row">
+                            <label>목표 마하수 M₇</label>
+                            <input type="number" id="fc-target-mach" value="6.76" min="1" step="0.5">
+                        </div>
+                        
+                        <div class="fc-form-row range-row">
+                            <label>단위 레이놀즈수 Re/m</label>
+                            <div class="range-inputs">
+                                <input type="number" id="fc-re-min" value="2" min="0.1" step="0.5">
+                                <span>~</span>
+                                <input type="number" id="fc-re-max" value="12" min="0.1" step="0.5">
+                                <span class="unit">×10⁶/m</span>
+                            </div>
+                        </div>
+                        
+                        <div class="fc-form-row range-row">
+                            <label>토탈 엔탈피 h_tot</label>
+                            <div class="range-inputs">
+                                <input type="number" id="fc-h-min" value="0.7" min="0.1" step="0.1">
+                                <span>~</span>
+                                <input type="number" id="fc-h-max" value="2.0" min="0.1" step="0.1">
+                                <span class="unit">MJ/kg</span>
+                            </div>
+                        </div>
+                        
+                        <div class="fc-divider"></div>
+                        
+                        <h3>📦 조건 설정</h3>
+                        
+                        <div class="fc-form-row">
+                            <label>Driven 가스</label>
+                            <select id="fc-driven-gas">
+                                <option value="air">Air (공기)</option>
+                                <option value="co2">CO₂ (이산화탄소)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="fc-form-row">
+                            <label>Driven 온도 T₁</label>
+                            <input type="number" id="fc-t1" value="300" min="200" step="10">
+                            <span class="unit">K</span>
+                        </div>
+                        
+                        <div class="fc-form-row">
+                            <label>Driver 온도 T₄</label>
+                            <input type="number" id="fc-t4" value="350" min="200" step="10">
+                            <span class="unit">K</span>
+                        </div>
+                        
+                        <div class="fc-divider"></div>
+                        
+                        <h3>🔧 추가 설정</h3>
+                        
+                        <div class="fc-checkbox-row">
+                            <input type="checkbox" id="fc-exp-constraint">
+                            <label for="fc-exp-constraint">
+                                드라이버 가압 제약 (1bar Air)<br>
+                                <span class="fc-hint">Air 1bar 고정 후 He 가압</span>
+                            </label>
+                        </div>
+                        
+                        <div class="fc-checkbox-row">
+                            <input type="checkbox" id="fc-auto-t4" checked>
+                            <label for="fc-auto-t4">
+                                Driver 온도 자동 추정<br>
+                                <span class="fc-hint">T₄ ≈ 300 + 0.8×(p₄-1) K</span>
+                            </label>
+                        </div>
+                        
+                        <button class="fc-calculate-btn" onclick="calculateFlowCondition()">
+                            🔍 조건 탐색
+                        </button>
+                    </div>
+                    
+                    <!-- 핵심 결과 -->
+                    <div class="fc-result-section fc-compact">
+                        <h3>📋 핵심 결과</h3>
+                        <div id="fc-key-results" class="fc-key-compact" style="display: none;">
+                            <div class="fc-key-item"><span>p₁</span><span id="fc-key-p1">-</span><small>bar</small></div>
+                            <div class="fc-key-item"><span>Δp</span><span id="fc-key-diff">-</span><small>bar</small></div>
+                        </div>
+                        <div id="fc-driver-guide" class="fc-guide-compact" style="display: none;">
+                            <div class="fc-guide-title">🔧 충전 가이드</div>
+                            <div class="fc-guide-item"><span>He%</span><span id="fc-guide-he">-</span></div>
+                            <div class="fc-guide-item hl"><span>①Air</span><span id="fc-guide-air">-</span></div>
+                            <div class="fc-guide-item hl"><span>②최종</span><span id="fc-guide-final">-</span></div>
+                        </div>
+                        <div id="fc-sliders" class="fc-sliders-compact" style="display: none;">
+                            <div class="fc-slider-item">
+                                <span>Re/m: <b id="fc-re-display">7.0</b></span>
+                                <input type="range" id="fc-re-slider" min="2" max="12" step="0.01" value="7">
+                            </div>
+                            <div class="fc-slider-item">
+                                <span>h_tot: <b id="fc-h-display">1.35</b></span>
+                                <input type="range" id="fc-h-slider" min="0.7" max="2.0" step="0.01" value="1.35">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 상세 결과 -->
+                    <div class="fc-result-section fc-compact">
+                        <h3>📊 상세</h3>
+                        <div id="fc-result-content" class="fc-result-content">
+                            <p class="fc-placeholder">조건 탐색을 눌러주세요.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn cancel" onclick="closeFlowConditionFinder()">닫기</button>
+                <button class="modal-btn confirm" onclick="applyFlowCondition()">✓ 메인에 적용</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 시험시간 선택 모달 -->
+    <div id="test-time-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⏱️ 시험시간 선택</h2>
+                <button class="modal-close" onclick="closeTestTimeSelector()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-chart-container">
+                    <canvas id="test-time-canvas" width="1000" height="400"></canvas>
+                </div>
+                <p class="modal-instruction">🖱️ 녹색 선을 드래그하여 시험 시작/끝 시간을 조절하세요</p>
+                <div class="test-time-info">
+                    <div class="info-item">
+                        <span class="info-label">시험시간</span>
+                        <span class="info-value" id="modal-test-duration">0.00 ms</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">구간</span>
+                        <span class="info-value" id="modal-test-range">0.00 ~ 0.00 ms</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">평균 압력</span>
+                        <span class="info-value" id="modal-mean-pressure">0.00 bar</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">CV (σ/μ)</span>
+                        <span class="info-value" id="modal-cv">0.00 %</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn cancel" onclick="closeTestTimeSelector()">취소</button>
+                <button class="modal-btn confirm" onclick="applyTestTime()">✓ 적용</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 비밀번호 체크
+        const SITE_PASSWORD = 'apl13041313!';
+        
+        // 세션에서 로그인 상태 확인
+        if (sessionStorage.getItem('authenticated') === 'true') {
+            document.getElementById('password-screen').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+        }
+        
+        function checkPassword() {
+            const input = document.getElementById('password-input').value;
+            const errorEl = document.getElementById('password-error');
+            
+            if (input === SITE_PASSWORD) {
+                sessionStorage.setItem('authenticated', 'true');
+                document.getElementById('password-screen').style.display = 'none';
+                document.getElementById('main-content').style.display = 'block';
+            } else {
+                errorEl.textContent = '❌ 비밀번호가 틀렸습니다.';
+                document.getElementById('password-input').value = '';
+            }
+        }
+    </script>
+    <script src="calculator.js"></script>
+    <script src="simulator.js"></script>
+</body>
+</html>
+

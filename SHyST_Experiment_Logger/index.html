@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHyST 실험 로거</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- SheetJS for Excel import/export (로컬 파일) -->
+    <script src="xlsx.full.min.js"></script>
+    
+    <!-- 간단한 파일 업로드 -->
+    <script src="simple-upload.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 헤더 -->
+        <header class="app-header">
+            <h1>🚀 SHyST 실험 로거</h1>
+            <div class="header-actions">
+                <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
+                <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
+                <button onclick="exportToExcel()" class="btn-secondary">📥 엑셀 내보내기</button>
+                <button onclick="document.getElementById('excel-import').click()" class="btn-secondary">📤 엑셀 불러오기</button>
+                <input type="file" id="excel-import" accept=".xlsx,.xls" style="display:none" onchange="importFromExcel(event)">
+            </div>
+        </header>
+
+        <!-- 네비게이션 탭 -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('before')">📝 실험 전 (Before)</button>
+            <button class="tab-btn" onclick="switchTab('processing')">🔬 데이터 후처리 (Processing)</button>
+            <button class="tab-btn" onclick="switchTab('calculation')">🧮 유동조건 계산 (Calculation)</button>
+            <button class="tab-btn" onclick="switchTab('summary')">📊 요약 (Summary)</button>
+        </nav>
+
+        <!-- 메인 컨텐츠 -->
+        <main class="main-content">
+            <!-- 실험 전 입력 페이지 -->
+            <div id="tab-before" class="tab-content active">
+                <div class="page-header">
+                    <h2>📝 실험 전 정보 입력</h2>
+                    <button onclick="saveBeforeData()" class="btn-primary">💾 저장</button>
+                </div>
+
+                <div class="form-section">
+                    <h3>실험 정보 (Exp Info)</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>실험 번호 #</label>
+                            <input type="text" id="exp-number" placeholder="자동 생성">
+                        </div>
+                        <div class="form-group">
+                            <label>실험자 이름</label>
+                            <input type="text" id="exp-name" placeholder="예: 허정무">
+                        </div>
+                        <div class="form-group">
+                            <label>날짜</label>
+                            <input type="date" id="exp-date">
+                        </div>
+                        <div class="form-group">
+                            <label>테스트 모델</label>
+                            <input type="text" id="test-model" placeholder="예: porous cone">
+                        </div>
+                        <div class="form-group">
+                            <label>실험 목적</label>
+                            <input type="text" id="objective" placeholder="예: mack 2nd mode exp">
+                        </div>
+                        <div class="form-group">
+                            <label>목표 마하수</label>
+                            <input type="number" id="target-mach" step="0.01" placeholder="예: 6.76">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>SHyST 설정</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>대기압 [hPa]</label>
+                            <input type="number" id="air-pressure" step="0.1" placeholder="예: 1008.1">
+                        </div>
+                        <div class="form-group">
+                            <label>대기 온도 [°C]</label>
+                            <input type="number" id="air-temp" step="0.1" placeholder="예: 25">
+                        </div>
+                        <div class="form-group">
+                            <label>대기 습도 [%]</label>
+                            <input type="number" id="air-humidity" step="0.1" placeholder="예: 52.8">
+                        </div>
+                        <div class="form-group">
+                            <label>드라이버 가스</label>
+                            <input type="text" id="driver-gas" placeholder="예: air 1bar + He">
+                        </div>
+                        <div class="form-group">
+                            <label>부스터 압력 [bar]</label>
+                            <input type="number" id="booster-pressure" step="1" placeholder="예: 250">
+                        </div>
+                        <div class="form-group">
+                            <label>1차 격막</label>
+                            <input type="text" id="first-diaphragm" placeholder="예: # 100 Al1015 5T 0.31DP">
+                        </div>
+                        <div class="form-group">
+                            <label>2차 격막</label>
+                            <input type="text" id="second-diaphragm" placeholder="예: PET 100micro">
+                        </div>
+                        <div class="form-group">
+                            <label>드리븐 가스</label>
+                            <select id="driven-gas">
+                                <option value="air">Air</option>
+                                <option value="n2">N2</option>
+                                <option value="co2">CO2</option>
+                                <option value="ar">Ar</option>
+                                <option value="he">He</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>드리븐 압력 [barg]</label>
+                            <input type="number" id="driven-pressure" step="0.01" placeholder="예: 0.2">
+                        </div>
+                        <div class="form-group">
+                            <label>드리븐 온도 [°C]</label>
+                            <input type="number" id="driven-temp" step="0.1" placeholder="예: 26">
+                        </div>
+                        <div class="form-group">
+                            <label>진공 게이지 [Torr]</label>
+                            <input type="number" id="vacuum-gauge" step="0.01" placeholder="예: 0.58">
+                        </div>
+                        <div class="form-group">
+                            <label>DAQ 샘플링 레이트 [Hz]</label>
+                            <input type="number" id="daq-sampling" step="1000" placeholder="예: 1000000">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>시각화 설정 (Visualization Setting)</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>시각화 방법</label>
+                            <input type="text" id="visualization-method" placeholder="예: Z-type Schlieren">
+                        </div>
+                        <div class="form-group">
+                            <label>시각화 타겟</label>
+                            <input type="text" id="visualization-target" placeholder="예: cone back surface">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>카메라 설정 (Camera Setting)</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>카메라</label>
+                            <input type="text" id="camera-model" placeholder="예: TMX7510">
+                        </div>
+                        <div class="form-group">
+                            <label>FPS</label>
+                            <input type="number" id="camera-fps" step="1000" placeholder="예: 1500000">
+                        </div>
+                        <div class="form-group">
+                            <label>해상도 W</label>
+                            <input type="number" id="camera-width" placeholder="예: 1280">
+                        </div>
+                        <div class="form-group">
+                            <label>해상도 H</label>
+                            <input type="number" id="camera-height" placeholder="예: 32">
+                        </div>
+                        <div class="form-group">
+                            <label>렌즈 초점거리</label>
+                            <input type="text" id="lens-focal" placeholder="예: 200 x2">
+                        </div>
+                        <div class="form-group">
+                            <label>노출 시간 [μs]</label>
+                            <input type="number" id="expose-time" step="0.01" placeholder="예: 0.1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 데이터 후처리 페이지 -->
+            <div id="tab-processing" class="tab-content">
+                <div class="page-header">
+                    <h2>🔬 실험 후 데이터 후처리</h2>
+                </div>
+
+                <div class="form-section">
+                    <h3>1. 데이터 파일 업로드</h3>
+                    <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
+                            <label style="display: block; margin-bottom: 10px; font-weight: bold;">실험 측정 데이터</label>
+                            <input type="file" id="exp-data-file" accept=".xlsx,.xls">
+                            <p id="exp-data-status" style="margin-top: 10px; font-size: 14px; color: #666;">
+                                파일을 선택해주세요
+                            </p>
+                        </div>
+                        
+                        <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
+                            <label style="display: block; margin-bottom: 10px; font-weight: bold;">DAQ Connection</label>
+                            <input type="file" id="daq-connection-file" accept=".xlsx,.xls">
+                            <p id="daq-status" style="margin-top: 10px; font-size: 14px; color: #666;">
+                                파일을 선택해주세요
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>2. 처리 옵션</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Driver 감지 임계값 계수</label>
+                            <input type="number" id="driver-threshold-coeff" value="3" step="0.1" min="1" max="10"
+                                   title="기울기 임계값 = 계수 × max(abs(max_gradient), abs(min_gradient))">
+                            <small style="color: #666;">기본값: 3 (클수록 큰 변화만 감지)</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="detect-model-front" style="width: auto; margin-right: 5px;">
+                                Model Front 압력 상승 감지
+                            </label>
+                            <small style="color: #666;">필요한 경우에만 체크</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>3. 1단계: 데이터 전처리 및 그래프 확인</h3>
+                    <button onclick="processDataStep1()" class="btn-primary" style="font-size: 16px; padding: 12px 30px;">
+                        ▶️ 1단계 처리 (필터링까지)
+                    </button>
+                    <div id="processing-progress" style="margin-top: 20px;"></div>
+                </div>
+
+                <div class="form-section" id="graph-section" style="display: none;">
+                    <h3>4. 필터링된 데이터 그래프</h3>
+                    <canvas id="result-preview" width="1200" height="600" style="border: 1px solid #ddd; border-radius: 8px;"></canvas>
+                    
+                    <div style="margin-top: 20px; padding: 20px; background: #f5f5f5; border-radius: 8px;">
+                        <h4 style="margin-top: 0;">시험 시작/끝점 조정</h4>
+                        <p style="color: #666; font-size: 14px;">그래프를 보면서 슬라이더를 조정하세요. 빨간 선이 시작점, 파란 선이 끝점입니다.</p>
+                        
+                        <div class="form-group">
+                            <label>시험 시작 시간 (ms): <span id="test-start-value">0.0</span></label>
+                            <input type="range" id="test-time-start-slider" min="0" max="30" step="0.1" value="0"
+                                   oninput="updateTestTimeLines()" style="width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>시험 끝 시간 (ms): <span id="test-end-value">30.0</span></label>
+                            <input type="range" id="test-time-end-slider" min="0" max="30" step="0.1" value="30"
+                                   oninput="updateTestTimeLines()" style="width: 100%;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>시험 길이: <span id="test-length-value">30.0</span> ms</label>
+                        </div>
+                        
+                        <button onclick="processDataStep2()" class="btn-primary" style="margin-top: 15px;">
+                            ▶️ 2단계 처리 (최종 측정값 계산)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>5. 측정값 (자동 계산됨)</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>p1 평균 [bar]</label>
+                            <input type="number" id="p1-avg" step="0.0001" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>T1 평균 [°C]</label>
+                            <input type="number" id="t1-avg" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>p4 평균 [bar]</label>
+                            <input type="number" id="p4-avg" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>p4 표준편차 [bar]</label>
+                            <input type="number" id="p4-std" step="0.001" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>T4 평균 [°C]</label>
+                            <input type="number" id="t4-avg" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>p5 평균 [bar]</label>
+                            <input type="number" id="p5-avg" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>p5 표준편차 [bar]</label>
+                            <input type="number" id="p5-std" step="0.001" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>시험시간 [ms]</label>
+                            <input type="number" id="test-time" step="0.001" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>충격파 속도 [m/s]</label>
+                            <input type="number" id="shock-speed" step="0.01" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>6. 결과 파일 다운로드</h3>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button onclick="downloadSlicedData()" class="btn-secondary">
+                            📥 슬라이스 데이터
+                        </button>
+                        <button onclick="downloadConvertedData()" class="btn-secondary">
+                            📥 물리량 변환 데이터
+                        </button>
+                        <button onclick="downloadFilteredData()" class="btn-secondary">
+                            📥 필터 적용 데이터
+                        </button>
+                        <button onclick="downloadFinalResults()" class="btn-primary">
+                            📥 최종 결과 (요약 포함)
+                        </button>
+                        <button onclick="downloadAllResults()" class="btn-primary" style="background: var(--accent-green);">
+                            📦 전체 다운로드
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <button onclick="saveProcessingData()" class="btn-primary" style="font-size: 18px; padding: 15px 40px; width: 100%;">
+                        💾 후처리 데이터 저장 및 DB에 추가
+                    </button>
+                </div>
+            </div>
+
+            <!-- 유동조건 계산 페이지 -->
+            <div id="tab-calculation" class="tab-content">
+                <div class="page-header">
+                    <h2>🧮 유동조건 계산</h2>
+                </div>
+
+                <div class="form-section">
+                    <h3>계산 방법 선택</h3>
+                    <div class="calc-method-selector">
+                        <label class="radio-card">
+                            <input type="radio" name="calc-method" value="estcn" checked>
+                            <div class="radio-content">
+                                <strong>ESTCN</strong>
+                                <p>평형 상태 가정, 빠른 계산</p>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="calc-method" value="1d">
+                            <div class="radio-content">
+                                <strong>1D 수치 계산</strong>
+                                <p>온도 의존 물성치, 정확한 계산</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>계산 입력값</h3>
+                    <div class="info-box">
+                        <p>실험 전/후 데이터가 자동으로 불러와집니다.</p>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>p1 [bar]</label>
+                            <input type="number" id="calc-p1" step="0.0001" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>T1 [K]</label>
+                            <input type="number" id="calc-t1" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>p4 [bar]</label>
+                            <input type="number" id="calc-p4" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>T4 [K]</label>
+                            <input type="number" id="calc-t4" step="0.01" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>드리븐 가스</label>
+                            <input type="text" id="calc-driven-gas" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>드라이버 가스</label>
+                            <input type="text" id="calc-driver-gas" readonly>
+                        </div>
+                    </div>
+                    <button onclick="calculateFlowConditions()" class="btn-primary">▶️ 계산 시작</button>
+                </div>
+
+                <div id="calculation-results" class="form-section" style="display:none;">
+                    <h3>계산 결과</h3>
+                    <div id="stages-results-grid" class="stages-grid"></div>
+                    <button onclick="saveCalculationResults()" class="btn-primary">💾 계산 결과 저장</button>
+                </div>
+            </div>
+
+            <!-- 요약 페이지 -->
+            <div id="tab-summary" class="tab-content">
+                <div class="page-header">
+                    <h2>📊 실험 요약</h2>
+                    <button onclick="generateReport()" class="btn-primary">📄 보고서 생성</button>
+                </div>
+
+                <div id="summary-content" class="summary-container">
+                    <p class="placeholder-text">실험 데이터를 입력하고 계산을 완료하면 요약이 표시됩니다.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 실험 목록 모달 -->
+    <div id="experiment-list-modal" class="modal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2>📋 실험 목록</h2>
+                <button onclick="closeExperimentList()" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="list-controls">
+                    <input type="text" id="search-experiments" placeholder="🔍 실험 검색..." onkeyup="filterExperiments()">
+                    <button onclick="createNewExperiment()" class="btn-primary">+ 새 실험</button>
+                </div>
+                <table id="experiments-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>날짜</th>
+                            <th>실험자</th>
+                            <th>모델</th>
+                            <th>목적</th>
+                            <th>마하수</th>
+                            <th>상태</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="experiments-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="database.js"></script>
+    <script src="calculator-core-full.js"></script>
+    <script src="signal-processing.js"></script>
+    <script src="post-processing.js"></script>
+    <script src="post-processing-step.js"></script>
+    <script src="post-processing-ui.js"></script>
+    <script src="data-processing.js"></script>
+    <script src="excel-handler.js"></script>
+    <script src="import-data.js"></script>
+    <script src="app.js"></script>
+    
+    <script>
+        // 페이지 로드 완료 후 디버그 정보 출력
+        window.addEventListener('load', function() {
+            console.log('=== 페이지 로드 완료 ===');
+            console.log('XLSX 라이브러리:', typeof XLSX);
+            console.log('handleExpDataUpload 함수:', typeof handleExpDataUpload);
+            console.log('handleDAQConnectionUpload 함수:', typeof handleDAQConnectionUpload);
+            console.log('processDataStep1 함수:', typeof processDataStep1);
+            console.log('processDataStep2 함수:', typeof processDataStep2);
+            
+            // 파일 입력 요소 확인
+            const expDataFile = document.getElementById('exp-data-file');
+            const daqFile = document.getElementById('daq-connection-file');
+            console.log('exp-data-file 요소:', expDataFile);
+            console.log('daq-connection-file 요소:', daqFile);
+            
+            if (typeof XLSX === 'undefined') {
+                console.error('❌ XLSX 라이브러리가 로드되지 않았습니다!');
+                alert('XLSX 라이브러리 로드 실패! 페이지를 새로고침해주세요.');
+            }
+            
+            if (typeof handleExpDataUpload === 'undefined') {
+                console.error('❌ handleExpDataUpload 함수가 정의되지 않았습니다!');
+            }
+            
+            console.log('=== 디버그 정보 출력 완료 ===');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shock Tube Calculator v3 - Simulation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Shock Tube Calculator v3</h1>
+            <p class="subtitle">해석해 + 1D Euler 시뮬레이션 (HLLC Solver)</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="input-group driver-group">
+                    <h2>🔴 Driver (고압부)</h2>
+                    <div class="form-row">
+                        <label for="driver-gas">가스 종류</label>
+                        <select id="driver-gas" onchange="toggleMixRatio()">
+                            <option value="he">Helium (헬륨)</option>
+                            <option value="h2">Hydrogen (수소)</option>
+                            <option value="air">Air (공기)</option>
+                            <option value="ar">Argon (아르곤)</option>
+                            <option value="mix" selected>Air/He 혼합</option>
+                        </select>
+                    </div>
+                    <div class="form-row" id="mix-ratio-row">
+                        <label for="he-ratio">He 몰분율</label>
+                        <input type="number" id="he-ratio" value="0.99" min="0" max="1" step="0.01">
+                        <span class="unit">(0~1)</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-p">압력</label>
+                        <input type="number" id="driver-p" value="120" min="1" step="1">
+                        <span class="unit">bar</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-t">온도</label>
+                        <input type="number" id="driver-t" value="400" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group driven-group">
+                    <h2>🔵 Driven (저압부)</h2>
+                    <div class="form-row">
+                        <label for="driven-gas">가스 종류</label>
+                        <select id="driven-gas">
+                            <option value="air">Air (공기)</option>
+                            <option value="co2">CO₂ (이산화탄소)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-p">압력</label>
+                        <input type="number" id="driven-p" value="1.2" min="0.01" step="0.1">
+                        <span class="unit">bar</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-t">온도</label>
+                        <input type="number" id="driven-t" value="300" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group geometry-group">
+                    <h2>📐 튜브 설정</h2>
+                    <div class="form-row">
+                        <label for="tube-length">튜브 길이</label>
+                        <input type="number" id="tube-length" value="11.5" min="1" step="0.5">
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="diaphragm">격막 위치</label>
+                        <input type="number" id="diaphragm" value="3.0" min="0.1" step="0.1">
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="end-time">시뮬레이션 시간</label>
+                        <input type="number" id="end-time" value="15" min="1" step="1">
+                        <span class="unit">ms</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="nx">격자 수</label>
+                        <input type="number" id="nx" value="700" min="100" step="100">
+                        <span class="unit">cells</span>
+                    </div>
+                </div>
+
+                <div class="input-group solver-settings">
+                    <h2>⚙️ 수렴 설정</h2>
+                    <div class="form-row">
+                        <label for="initial-mach">초기 마하수</label>
+                        <input type="number" id="initial-mach" value="3.0" min="1.1" step="0.5">
+                    </div>
+                </div>
+
+                <button class="calculate-btn" onclick="calculate()">
+                    🔬 해석해 계산
+                </button>
+                
+                <button class="simulate-btn" onclick="runSimulation()">
+                    ▶️ 시뮬레이션 실행
+                </button>
+                
+                <button class="tailored-btn" onclick="findTailoredComposition()">
+                    🎯 테일러드 조성 탐색
+                </button>
+            </div>
+
+            <div class="output-section">
+                <!-- 해석해 계산 결과 -->
+                <h2>📊 해석해 결과 (Analytic Solution)</h2>
+                <div id="convergence-info" class="convergence-info"></div>
+                <div id="results" class="results-grid">
+                    <p class="placeholder">입력값을 설정하고 "해석해 계산" 버튼을 눌러주세요.</p>
+                </div>
+                
+                <!-- 테일러드 분석 결과 (결과 그리드 안에 표시) -->
+                <div id="tailored-section" class="tailored-section-inline" style="display: none;">
+                    <h3 class="tailored-inline-title">🎯 테일러드 조건 분석 (Z₂ ≈ Z₃)</h3>
+                    <div id="tailored-result" class="tailored-result"></div>
+                </div>
+                
+                <!-- 시뮬레이션 결과 -->
+                <div id="simulation-section" class="simulation-section" style="display: none;">
+                    <h2>🎬 시뮬레이션 결과 (1D Euler - HLLC)</h2>
+                    
+                    <!-- 진행 상태 -->
+                    <div id="sim-progress" class="sim-progress" style="display: none;">
+                        <div class="progress-container">
+                            <div class="progress-bar" id="progress-bar"></div>
+                        </div>
+                        <div class="progress-text" id="progress-text">시뮬레이션 준비 중...</div>
+                        <div class="progress-details">
+                            <span id="progress-time">t = 0.00 ms</span>
+                            <span id="progress-remaining">남은 시간: 계산 중...</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 시뮬레이션 GIF들 -->
+                    <div id="sim-results" class="sim-results" style="display: none;">
+                        <div class="sim-grid">
+                            <!-- 메인 시뮬레이션 GIF -->
+                            <div class="sim-card main-gif">
+                                <h3>📈 시뮬레이션 애니메이션</h3>
+                                <div class="gif-container">
+                                    <canvas id="sim-gif-canvas" width="800" height="500"></canvas>
+                                </div>
+                                <div class="gif-controls">
+                                    <button onclick="toggleGifPlay()" id="gif-play-btn">⏸️ 일시정지</button>
+                                    <button onclick="resetGif()">🔄 처음부터</button>
+                                    <span id="gif-frame-info">Frame: 0 / 0</span>
+                                </div>
+                                <div class="timeline-container">
+                                    <span class="timeline-label">t = <span id="timeline-time">0.00</span> ms</span>
+                                    <input type="range" id="timeline-slider" min="0" max="100" value="0" 
+                                           oninput="onTimelineChange(this.value)">
+                                </div>
+                            </div>
+                            
+                            <!-- x-t 다이어그램 -->
+                            <div class="sim-card xt-diagram">
+                                <h3>🗺️ x-t 다이어그램</h3>
+                                <canvas id="xt-canvas" width="900" height="1200"></canvas>
+                            </div>
+                            
+                            <!-- 벽면 히스토리 -->
+                            <div class="sim-card wall-history">
+                                <h3>📊 끝점 (x = L) 시간 이력</h3>
+                                <canvas id="wall-canvas" width="1200" height="1000"></canvas>
+                                <button class="test-time-btn" onclick="openTestTimeSelector()">
+                                    ⏱️ 시험시간 선택하기
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 최적 조성 탐색 결과 -->
+                <div id="composition-section" class="composition-section" style="display: none;">
+                    <h2>🔍 최적 드라이버 가스 조성 탐색</h2>
+                    <div id="composition-result" class="composition-result"></div>
+                    <canvas id="tau-chart" width="900" height="450"></canvas>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>WiSTL Shock Tube Calculator v3 | 해석해 + 1D Euler 시뮬레이션</p>
+            <p class="ref">HLLC Riemann Solver | Web Worker 기반 백그라운드 연산</p>
+        </footer>
+    </div>
+
+    <!-- 시험시간 선택 모달 -->
+    <div id="test-time-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⏱️ 시험시간 선택</h2>
+                <button class="modal-close" onclick="closeTestTimeSelector()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-chart-container">
+                    <canvas id="test-time-canvas" width="1000" height="400"></canvas>
+                </div>
+                <p class="modal-instruction">🖱️ 녹색 선을 드래그하여 시험 시작/끝 시간을 조절하세요</p>
+                <div class="test-time-info">
+                    <div class="info-item">
+                        <span class="info-label">시험시간</span>
+                        <span class="info-value" id="modal-test-duration">0.00 ms</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">구간</span>
+                        <span class="info-value" id="modal-test-range">0.00 ~ 0.00 ms</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">평균 압력</span>
+                        <span class="info-value" id="modal-mean-pressure">0.00 bar</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">CV (σ/μ)</span>
+                        <span class="info-value" id="modal-cv">0.00 %</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn cancel" onclick="closeTestTimeSelector()">취소</button>
+                <button class="modal-btn confirm" onclick="applyTestTime()">✓ 적용</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="calculator.js"></script>
+    <script src="simulator.js"></script>
+</body>
+</html>
+

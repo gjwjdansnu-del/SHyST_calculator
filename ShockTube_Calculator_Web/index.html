@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shock Tube Calculator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Shock Tube Calculator</h1>
+            <p class="subtitle">충격파 튜브 상태 계산기</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="input-group">
+                    <h2>🔴 Driver (고압부)</h2>
+                    <div class="form-row">
+                        <label for="driver-gas">가스 종류</label>
+                        <select id="driver-gas" onchange="toggleMixRatio()">
+                            <option value="h2">Hydrogen (수소)</option>
+                            <option value="he">Helium (헬륨)</option>
+                            <option value="air">Air (공기)</option>
+                            <option value="mix">Air/He 혼합</option>
+                        </select>
+                    </div>
+                    <div class="form-row" id="mix-ratio-row" style="display: none;">
+                        <label for="he-ratio">He 몰분율</label>
+                        <input type="number" id="he-ratio" value="0.5" min="0" max="1" step="0.01">
+                        <span class="unit">(0~1)</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-p">압력</label>
+                        <input type="number" id="driver-p" value="110" min="1" step="1">
+                        <span class="unit">bar</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driver-t">온도</label>
+                        <input type="number" id="driver-t" value="300" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <h2>🔵 Driven (저압부)</h2>
+                    <div class="form-row">
+                        <label for="driven-gas">가스 종류</label>
+                        <select id="driven-gas">
+                            <option value="air">Air (공기)</option>
+                            <option value="co2">CO₂ (이산화탄소)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-p">압력</label>
+                        <input type="number" id="driven-p" value="1" min="0.01" step="0.1">
+                        <span class="unit">atm</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="driven-t">온도</label>
+                        <input type="number" id="driven-t" value="300" min="1" step="1">
+                        <span class="unit">K</span>
+                    </div>
+                </div>
+
+                <div class="input-group solver-settings">
+                    <h2>⚙️ 수렴 설정</h2>
+                    <div class="form-row">
+                        <label for="initial-mach">초기 마하수</label>
+                        <input type="number" id="initial-mach" value="3.0" min="1.1" step="0.5">
+                    </div>
+                </div>
+
+                <button class="calculate-btn" onclick="calculate()">
+                    계산 실행
+                </button>
+            </div>
+
+            <div class="output-section">
+                <h2>📊 계산 결과</h2>
+                <div id="convergence-info" class="convergence-info"></div>
+                <div id="results" class="results-grid">
+                    <p class="placeholder">입력값을 설정하고 "계산 실행" 버튼을 눌러주세요.</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>WiSTL Shock Tube Calculator | 충격파 튜브 상태 계산기</p>
+        </footer>
+    </div>
+
+    <script src="calculator.js"></script>
+</body>
+</html>
+
