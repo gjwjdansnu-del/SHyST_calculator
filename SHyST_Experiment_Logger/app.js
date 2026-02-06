@@ -70,10 +70,27 @@ function switchTab(tabName) {
 }
 
 function loadCalculationInputs() {
-    if (!currentExperiment) return;
+    if (!currentExperiment) {
+        document.getElementById('calc-data-check').style.display = 'block';
+        document.getElementById('calc-input-section').style.display = 'none';
+        return;
+    }
     
     const after = currentExperiment.after?.labviewLog || {};
     const before = currentExperiment.before || {};
+    
+    // 필수 데이터 체크
+    const hasRequiredData = after.p1_avg && after.t1_avg && after.p5_avg && after.shockSpeed;
+    
+    if (!hasRequiredData) {
+        document.getElementById('calc-data-check').style.display = 'block';
+        document.getElementById('calc-input-section').style.display = 'none';
+        return;
+    }
+    
+    // 데이터가 있으면 입력 섹션 표시
+    document.getElementById('calc-data-check').style.display = 'none';
+    document.getElementById('calc-input-section').style.display = 'block';
     
     document.getElementById('calc-p1').value = after.p1_avg || '';
     document.getElementById('calc-t1').value = after.t1_avg || '';
