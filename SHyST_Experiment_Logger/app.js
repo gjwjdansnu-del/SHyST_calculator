@@ -498,7 +498,7 @@ async function refreshExperimentList() {
         experiments.forEach(exp => {
             const row = document.createElement('tr');
             
-            const statusBadge = getStatusBadge(exp.status);
+            const statusBadge = getStatusBadge(exp);
             const date = exp.before.expInfo.date || '미입력';
             const name = exp.before.expInfo.name || '미입력';
             const model = exp.before.expInfo.testModel || '미입력';
@@ -528,15 +528,19 @@ async function refreshExperimentList() {
     }
 }
 
-function getStatusBadge(status) {
-    const badges = {
-        'pending': '<span class="status-badge pending">대기</span>',
-        'before_complete': '<span class="status-badge processing">실험 전 완료</span>',
-        'processing_complete': '<span class="status-badge processing">후처리 완료</span>',
-        'completed': '<span class="status-badge complete">완료</span>'
-    };
+function getStatusBadge(exp) {
+    const p5Avg = exp?.after?.labviewLog?.p5_avg;
+    const stage1p = exp?.calculation?.stages?.stage1?.p;
     
-    return badges[status] || '<span class="status-badge pending">알 수 없음</span>';
+    if (Number.isFinite(stage1p)) {
+        return '<span class="status-badge complete">완료</span>';
+    }
+    
+    if (Number.isFinite(p5Avg)) {
+        return '<span class="status-badge processing">후처리 완료</span>';
+    }
+    
+    return '<span class="status-badge pending">후처리 전</span>';
 }
 
 async function loadAndEditExperiment(id) {
