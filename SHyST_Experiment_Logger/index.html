@@ -13,7 +13,7 @@
     <div class="app-container">
         <!-- 헤더 -->
         <header class="app-header">
-            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.4</span></h1>
+            <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.5</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -186,7 +186,7 @@
                     <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                         <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
                             <label style="display: block; margin-bottom: 10px; font-weight: bold;">실험 측정 데이터</label>
-                            <input type="file" id="exp-data-file" accept=".xlsx,.xls">
+                            <input type="file" id="exp-data-file" accept=".xlsx,.xls" onchange="handleExpDataUpload(event)">
                             <p id="exp-data-status" style="margin-top: 10px; font-size: 14px; color: #666;">
                                 파일을 선택해주세요
                             </p>
@@ -194,7 +194,7 @@
                         
                         <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
                             <label style="display: block; margin-bottom: 10px; font-weight: bold;">DAQ Connection</label>
-                            <input type="file" id="daq-connection-file" accept=".xlsx,.xls">
+                            <input type="file" id="daq-connection-file" accept=".xlsx,.xls" onchange="handleDAQConnectionUpload(event)">
                             <p id="daq-status" style="margin-top: 10px; font-size: 14px; color: #666;">
                                 파일을 선택해주세요
                             </p>
@@ -451,7 +451,6 @@
     <script src="data-processing.js"></script>
     <script src="excel-handler.js"></script>
     <script src="import-data.js"></script>
-    <script src="simple-upload.js"></script>
     <script src="app.js"></script>
     
     <script>
