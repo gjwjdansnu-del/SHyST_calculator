@@ -93,6 +93,7 @@ async function processDataStep1() {
         
         updatePressureThresholdValue();
         const riseIndices = computeRiseIndices();
+        updateLiveShockSpeed(riseIndices);
         drawFilteredDataGraph(filteredData, uploadedDAQConnection, riseIndices);
         drawChannelGraphs(filteredData, uploadedDAQConnection, riseIndices);
         
@@ -780,11 +781,30 @@ function computeRiseIndices() {
     return { driven7Index, driven8Index };
 }
 
+function updateLiveShockSpeed(riseIndices) {
+    const shockSpeedEl = document.getElementById('shock-speed-live');
+    if (!shockSpeedEl || !step1Results?.FPS) return;
+    if (!riseIndices || riseIndices.driven7Index === null || riseIndices.driven8Index === null) {
+        shockSpeedEl.textContent = '-';
+        return;
+    }
+    const deltaIdx = riseIndices.driven8Index - riseIndices.driven7Index;
+    if (deltaIdx <= 0) {
+        shockSpeedEl.textContent = '-';
+        return;
+    }
+    const distanceMeters = 0.5; // 기본 센서 거리 (calculateMeasurements와 동일)
+    const deltaT = deltaIdx / step1Results.FPS;
+    const speed = distanceMeters / deltaT;
+    shockSpeedEl.textContent = Number.isFinite(speed) ? speed.toFixed(2) : '-';
+}
+
 function updatePressureThreshold() {
     updatePressureThresholdValue();
     if (!step1Results.filteredData) return;
     
     const riseIndices = computeRiseIndices();
+    updateLiveShockSpeed(riseIndices);
     const startMs = parseFloat(document.getElementById('test-time-start-slider').value);
     const lengthMs = parseFloat(document.getElementById('test-time-length-slider').value);
     const endMs = Math.min(30, startMs + lengthMs);
