@@ -347,20 +347,20 @@ async function calculateFlowConditions() {
     
     // 입력값 수집
     const p1_bar = currentExperiment.after.labviewLog.p1_avg;
-    const t1_k = currentExperiment.after.labviewLog.t1_avg;
+    const t1_celsius = currentExperiment.after.labviewLog.t1_avg;  // °C 단위!
     const p5s_bar = currentExperiment.after.labviewLog.p5_avg;
     const shockSpeed = currentExperiment.after.labviewLog.shockSpeed;
     const targetMach = currentExperiment.before.expInfo.targetMach;
     
-    if (!p1_bar || !t1_k || !p5s_bar || !shockSpeed) {
+    if (!p1_bar || t1_celsius === undefined || t1_celsius === null || !p5s_bar || !shockSpeed) {
         alert('실험 후 데이터(p1, T1, p5_avg, shock_speed)를 먼저 입력해주세요.\n\n데이터 후처리 탭에서 먼저 처리를 완료해주세요.');
         return;
     }
     
     // 단위 변환
-    const p1 = p1_bar * 1e5; // Pa
-    const T1 = t1_k; // K (이미 K 단위)
-    const pe = p5s_bar * 1e5; // Pa (equilibrium pressure)
+    const p1 = p1_bar * 1e5; // bar → Pa
+    const T1 = t1_celsius + 273.15; // °C → K
+    const pe = p5s_bar * 1e5; // bar → Pa
     const Vs = shockSpeed; // m/s
     
     const drivenGas = currentExperiment.before.shystSetting.drivenGas;
