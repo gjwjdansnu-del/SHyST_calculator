@@ -853,7 +853,7 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven)
         const V0 = voltageData.slice(0, 2500).reduce((sum, v) => sum + v, 0) / 2500;
         
         // driven7, driven8은 드리븐 압력 기준 사용
-        const desc = config.description.toLowerCase();
+        const desc = (config.description || '').toLowerCase();
         const useDriverPressure = desc.includes('driven7') || desc.includes('driven8');
         const p_base = useDriverPressure ? p_driven : p_t;
         
@@ -865,7 +865,9 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven)
         convertedCount++;
         
         const sampleConverted = convertedData.slice(0, 3);
-        console.log(`✅ 포트 ${portNum} 변환 완료: ${config.description} (${config.calibration}), p_base=${p_base.toFixed(4)}, 샘플: [${sampleConverted.map(v => v.toFixed(4)).join(', ')}]`);
+        const formatNumber = (value, digits = 4) =>
+            Number.isFinite(value) ? value.toFixed(digits) : String(value);
+        console.log(`✅ 포트 ${portNum} 변환 완료: ${config.description || ''} (${config.calibration}), p_base=${formatNumber(p_base)}, 샘플: [${sampleConverted.map(v => formatNumber(v)).join(', ')}]`);
     }
     
     console.log(`변환 완료: ${convertedCount}개 변환, ${skippedCount}개 스킵`);
