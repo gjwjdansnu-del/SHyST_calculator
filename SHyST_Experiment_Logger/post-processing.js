@@ -326,7 +326,12 @@ async function processData() {
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
         const p_t = (currentExperiment.before.shystSetting.vacuumGauge || 0) * 0.00133322; // Torr to bar
         const p_a = (currentExperiment.before.shystSetting.airPressure || 1013) / 1000; // hPa to bar
-        const p_driven = 1.0 + (currentExperiment.before.expInfo.drivenPressure || 0); // 드리븐 절대압 [bar]
+        
+        // 드리븐 절대압 [bar] = 1 + 드리븐압력[barg]
+        const drivenPressureBarg = currentExperiment.before?.expInfo?.drivenPressure;
+        const p_driven = (drivenPressureBarg !== undefined && drivenPressureBarg !== null) 
+            ? (1.0 + drivenPressureBarg) 
+            : p_t; // fallback to p_t if not available
         
         console.log('실험 조건:', {
             FPS: FPS,
