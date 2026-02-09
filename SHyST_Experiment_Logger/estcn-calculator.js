@@ -374,8 +374,8 @@ class GasState {
                 T_new = T + Math.sign(delta) * 0.5 * T;
             }
             
-            // Clamp to valid range (allow down to 50K for high Mach expansions)
-            T_new = Math.max(50, Math.min(10000, T_new));
+            // Clamp to valid range (allow down to 10K for high Mach expansions)
+            T_new = Math.max(10, Math.min(10000, T_new));
             T = T_new;
         }
         
@@ -710,46 +710,71 @@ function expansion_to_area_ratio(state0, area_ratio, mflux_throat) {
 
 /**
  * Isentropic expansion to a given Mach number.
+ * Uses ideal gas relations for low-temperature exit conditions (Stage 7).
  * 
  * @param {GasState} state0 - Stagnation state (reservoir)
  * @param {number} M_target - Target Mach number
  * @returns {Object} {state7, V7} - Exit state and velocity
  */
 function expansion_to_mach(state0, M_target) {
-    // Find pressure ratio that gives target Mach number
-    function error_in_mach(p_ratio) {
-        const [state, V] = expand_from_stagnation(p_ratio, state0);
-        const M = V / state.a;
-        return M - M_target;
-    }
+    const state7 = state0.clone();
     
-    // Initial guess from ideal gas relation
-    const gam = state0.gam;
-    const p_ratio_ideal = Math.pow(1 + (gam - 1) / 2 * M_target * M_target, -gam / (gam - 1));
+    // ============================================
+    // 이상기체 등엔트로피 팽창 공식 사용 (ESTCN 방식)
+    // ============================================
     
-    // Secant method
-    let x1 = p_ratio_ideal * 0.9;
-    let x2 = p_ratio_ideal * 1.1;
+    // Stage 7은 저온이므로 gamma = 1.3905 고정 (air, 저온)
+    const gam = 1.3905;
+    const Cp = 1022.1;  // J/kg·K
+    const R = state7.R;
+    const Cv = Cp - R;
     
-    let f1 = error_in_mach(x1);
-    let f2 = error_in_mach(x2);
+    // 등엔트로피 관계식: T7/T0 = (1 + (gam-1)/2 * M^2)^(-1)
+    const T_ratio = Math.pow(1.0 + (gam - 1.0) / 2.0 * M_target * M_target, -1.0);
+    const T7 = state0.T * T_ratio;
     
-    for (let iter = 0; iter < 30; iter++) {
-        if (Math.abs(f2) < 1e-6) break;
-        
-        const slope = (f2 - f1) / (x2 - x1);
-        if (Math.abs(slope) < 1e-15) break;
-        
-        const x3 = x2 - f2 / slope;
-        x1 = x2;
-        f1 = f2;
-        x2 = Math.max(1e-8, Math.min(0.99, x3));
-        f2 = error_in_mach(x2);
-    }
+    // 등엔트로피 관계식: p7/p0 = (T7/T0)^(gam/(gam-1))
+    const p_ratio = Math.pow(T_ratio, gam / (gam - 1.0));
+    const p7 = state0.p * p_ratio;
     
-    const [state7, V7] = expand_from_stagnation(x2, state0);
+    // 밀도: 이상기체 법칙
+    const rho7 = p7 / (R * T7);
     
-    return { state7, V7, p_ratio: x2 };
+    // 음속
+    const a7 = Math.sqrt(gam * R * T7);
+    
+    // 속도
+    const V7 = M_target * a7;
+    
+    // 엔탈피 (이상기체): h = Cp * T + offset
+    const h7 = Cp * T7 + ESTCN_H_OFFSET;
+    
+    // 내부 에너지
+    const e7 = Cv * T7;
+    
+    // 엔트로피: 등엔트로피이므로 state0와 동일
+    const s7 = state0.s;
+    
+    // 점성: Sutherland 공식
+    const mu_ref = 1.716e-5;
+    const T_ref = 273.15;
+    const S = 110.4;
+    const mu7 = mu_ref * Math.pow(T7 / T_ref, 1.5) * (T_ref + S) / (T7 + S);
+    
+    // State 7 설정
+    state7.p = p7;
+    state7.T = T7;
+    state7.rho = rho7;
+    state7.h = h7;
+    state7.e = e7;
+    state7.s = s7;
+    state7.a = a7;
+    state7.gam = gam;
+    state7.Cp = Cp;
+    state7.Cv = Cv;
+    state7.mu = mu7;
+    
+    return { state7, V7, p_ratio };
 }
 
 // ============================================
