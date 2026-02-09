@@ -29,8 +29,11 @@ async function processDataStep1() {
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
         const p_t = (currentExperiment.before.shystSetting.vacuumGauge || 0) * 0.00133322;
         const p_a = (currentExperiment.before.shystSetting.airPressure || 1013) / 1000;
+        const drivenPressureBarg = currentExperiment.before?.expInfo?.drivenPressure;
+        const hasDrivenPressure = Number.isFinite(drivenPressureBarg);
+        const p_driven = hasDrivenPressure ? (1.0 + drivenPressureBarg) : p_t;
         
-        console.log('실험 조건:', {FPS, p_t, p_a});
+        console.log('실험 조건:', {FPS, p_t, p_a, p_driven});
         
         // Step 1: Driver 압력 강하 감지
         updateProgress(20, '1/4 Driver 압력 강하 감지 중...');
@@ -60,7 +63,7 @@ async function processDataStep1() {
         
         // Step 3: 전압 → 물리량 변환
         updateProgress(60, '3/4 전압 → 물리량 변환 중...');
-        const convertedData = convertVoltageToPhysical(slicedData, uploadedDAQConnection, p_t, p_a);
+        const convertedData = convertVoltageToPhysical(slicedData, uploadedDAQConnection, p_t, p_a, p_driven);
         console.log('✅ 변환 완료');
         
         // Step 4: 필터 적용
@@ -81,7 +84,7 @@ async function processDataStep1() {
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
         
         // 압력 임계값 슬라이더 범위 설정 (0 ~ 2*p1)
-        const p1_bar = currentExperiment?.after?.labviewLog?.p1_avg || 0.1;
+        const p1_bar = hasDrivenPressure ? p_driven : (currentExperiment?.after?.labviewLog?.p1_avg || 0.1);
         const maxPressure = 2 * p1_bar;
         const pressureSlider = document.getElementById('pressure-threshold-slider');
         pressureSlider.max = maxPressure.toFixed(2);

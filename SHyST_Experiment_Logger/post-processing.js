@@ -827,6 +827,7 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven)
     const convertedChannels = {};
     let convertedCount = 0;
     let skippedCount = 0;
+    const baseDriven = Number.isFinite(p_driven) ? p_driven : p_t;
     
     // DAQ Connection의 각 설정에 대해
     for (let config of daqConnection) {
@@ -855,7 +856,7 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven)
         // driven7, driven8은 드리븐 압력 기준 사용
         const desc = (config.description || '').toLowerCase();
         const useDriverPressure = desc.includes('driven7') || desc.includes('driven8');
-        const p_base = useDriverPressure ? p_driven : p_t;
+        const p_base = useDriverPressure ? baseDriven : p_t;
         
         const convertedData = voltageData.map(v => 
             convertSingleValue(v, config, p_base, p_a, V0)
