@@ -139,8 +139,10 @@ function createAllExperimentsSheet(experiments) {
         
         // Re7, h_tot7
         const stage7 = exp.calculation.stages.stage7;
-        row.push(stage7 ? stage7.Re_unit_e6 : '');
-        row.push(stage7 ? stage7.H0_MJ : '');
+        // Re_unit은 이미 /m 단위 (×10⁶으로 나눈 값)
+        row.push(stage7 && stage7.Re_unit ? stage7.Re_unit * 1e6 : '');
+        // h_total은 MJ/kg 단위이므로 J/kg로 변환
+        row.push(stage7 && stage7.h_total ? stage7.h_total * 1e6 : '');
         
         data.push(row);
     });
@@ -252,8 +254,8 @@ function createESTCNSheet() {
         data.push([]);
         data.push(['Stage 7 추가 정보']);
         data.push(['마하수 M', stages.stage7.M ? stages.stage7.M.toFixed(2) : '-']);
-        data.push(['레이놀즈수 Re/m [×10⁶]', stages.stage7.Re_unit_e6 ? stages.stage7.Re_unit_e6.toFixed(2) : '-']);
-        data.push(['토탈 엔탈피 h_tot [MJ/kg]', stages.stage7.H0_MJ ? stages.stage7.H0_MJ.toFixed(3) : '-']);
+        data.push(['레이놀즈수 Re/m [×10⁶]', stages.stage7.Re_unit ? (stages.stage7.Re_unit * 1e6).toFixed(2) : '-']);
+        data.push(['토탈 엔탈피 h_tot [MJ/kg]', stages.stage7.h_total ? stages.stage7.h_total.toFixed(3) : '-']);
     }
     
     return data;
@@ -466,11 +468,13 @@ function parseExcelToExperiments(jsonData) {
             
             // Stage 7에 Re7, h_tot7 추가
             if (stageKey === 'stage7') {
-                stage.Re_unit_e6 = parseFloat(row[colIndex + 12]) || null;
-                stage.H0_MJ = parseFloat(row[colIndex + 13]) || null;
+                const Re7_per_m = parseFloat(row[colIndex + 12]) || null;
+                const h_tot7_J = parseFloat(row[colIndex + 13]) || null;
                 
-                if (stage.Re_unit_e6) stage.Re_unit = stage.Re_unit_e6 * 1e6;
-                if (stage.H0_MJ) stage.H0 = stage.H0_MJ * 1e6;
+                // Re_unit: /m 단위를 ×10⁶으로 나눈 값으로 저장
+                if (Re7_per_m) stage.Re_unit = Re7_per_m / 1e6;
+                // h_total: J/kg를 MJ/kg로 변환하여 저장
+                if (h_tot7_J) stage.h_total = h_tot7_J / 1e6;
             }
             
             exp.calculation.stages[stageKey] = stage.p ? stage : null;
