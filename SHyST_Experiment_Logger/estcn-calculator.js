@@ -746,8 +746,11 @@ function expansion_to_mach(state0, M_target) {
     // 속도
     const V7 = M_target * a7;
     
-    // 엔탈피 (이상기체): h = Cp * T + offset
-    const h7 = Cp * T7 + ESTCN_H_OFFSET;
+    // 엔탈피: total enthalpy 보존에서 역산
+    // h_total = h + 0.5*V^2 = 일정
+    // h = h_total - 0.5*V^2
+    const h_total = state0.h;  // state0는 정체 상태 (V=0)이므로 h_total = h
+    const h7 = h_total - 0.5 * V7 * V7;
     
     // 내부 에너지
     const e7 = Cv * T7;
