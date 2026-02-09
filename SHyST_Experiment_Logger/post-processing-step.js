@@ -29,7 +29,7 @@ async function processDataStep1() {
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
         const p_t = (currentExperiment.before.shystSetting.vacuumGauge || 0) * 0.00133322;
         const p_a = (currentExperiment.before.shystSetting.airPressure || 1013) / 1000;
-        const drivenPressureBarg = currentExperiment.before?.expInfo?.drivenPressure;
+        const drivenPressureBarg = currentExperiment.before?.shystSetting?.drivenPressure;
         const hasDrivenPressure = Number.isFinite(drivenPressureBarg);
         const p_driven = hasDrivenPressure ? (1.0 + drivenPressureBarg) : p_t;
         

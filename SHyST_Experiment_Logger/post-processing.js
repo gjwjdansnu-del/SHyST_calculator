@@ -328,7 +328,7 @@ async function processData() {
         const p_a = (currentExperiment.before.shystSetting.airPressure || 1013) / 1000; // hPa to bar
         
         // 드리븐 절대압 [bar] = 1 + 드리븐압력[barg]
-        const drivenPressureBarg = currentExperiment.before?.expInfo?.drivenPressure;
+        const drivenPressureBarg = currentExperiment.before?.shystSetting?.drivenPressure;
         const p_driven = (drivenPressureBarg !== undefined && drivenPressureBarg !== null) 
             ? (1.0 + drivenPressureBarg) 
             : p_t; // fallback to p_t if not available
@@ -856,7 +856,9 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven)
         // driven7, driven8은 드리븐 압력 기준 사용
         const desc = (config.description || '').toLowerCase();
         const useDriverPressure = desc.includes('driven7') || desc.includes('driven8');
-        const p_base = useDriverPressure ? baseDriven : p_t;
+        const coeffB = Number.isFinite(config.coeffB) ? config.coeffB : 0;
+        const useDrivenBaseline = useDriverPressure && config.calibration === 'p_t+a(V-c)+b' && Number.isFinite(baseDriven);
+        const p_base = useDrivenBaseline ? (baseDriven - coeffB) : p_t;
         
         const convertedData = voltageData.map(v => 
             convertSingleValue(v, config, p_base, p_a, V0)
