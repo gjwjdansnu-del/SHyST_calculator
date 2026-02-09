@@ -248,15 +248,50 @@ class GasState {
         // Pressure from ideal gas law
         this.p = this.rho * this.R * this.T;
         
-        // Rest is same as _updateFromPT
+        // ============================================
+        // 200K 이하: 이상 기체 가정 (ESTCN 방식)
+        // _updateFromPT()와 동일한 로직 사용
+        // ============================================
+        if (this.T < 200) {
+            if (this.gasType === 'air') {
+                this.Cp = 1022.1;
+                this.gam = 1.39053;
+            } else if (this.gasType === 'co2') {
+                this.Cp = 846.0;
+                this.gam = 1.289;
+            } else {
+                this.Cp = 1022.1;
+                this.gam = 1.39053;
+            }
+            
+            this.Cv = this.Cp - this.R;
+            this.h = this.Cp * this.T + ESTCN_H_OFFSET;
+            this.e = this.Cv * this.T;
+            
+            const T_boundary = 200;
+            const p_ref = 101325;
+            const a = ESTCN_NASA_COEFFS[this.gasType].low.a;
+            const T_b = T_boundary;
+            const sOverR_200 = a[0]*Math.log(T_b) + a[1]*T_b + a[2]*T_b*T_b/2 + a[3]*T_b*T_b*T_b/3 + a[4]*T_b*T_b*T_b*T_b/4 + a[6];
+            const s_200_at_pref = this.R * sOverR_200;
+            this.s = s_200_at_pref + this.Cp * Math.log(this.T / T_boundary) - this.R * Math.log(this.p / p_ref);
+            
+            this.a = Math.sqrt(this.gam * this.R * this.T);
+            this.mu = this._calcViscosity();
+            return;
+        }
+        
+        // ============================================
+        // 200K 이상: NASA polynomial 사용
+        // ============================================
         const CpOverR = this._calcCpOverR();
         this.Cp = CpOverR * this.R;
         this.Cv = this.Cp - this.R;
         this.gam = this.Cp / this.Cv;
         
         const hOverRT = this._calcHOverRT();
-        this.h = hOverRT * this.R * this.T;
-        this.e = this.h - this.R * this.T;
+        this.h = hOverRT * this.R * this.T + ESTCN_H_OFFSET;  // 오프셋 추가!
+        this.e = this.Cv * this.T;  // _updateFromPT()와 동일하게 수정
         
         const sOverR = this._calcSOverR();
         const p_ref = 101325;
