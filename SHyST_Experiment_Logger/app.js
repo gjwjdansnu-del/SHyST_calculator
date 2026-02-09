@@ -359,144 +359,193 @@ async function calculateFlowConditions() {
     
     // 단위 변환
     const p1 = p1_bar * 1e5; // Pa
-    const t1 = t1_k; // K (이미 K 단위)
-    const p5s = p5s_bar * 1e5; // Pa
+    const T1 = t1_k; // K (이미 K 단위)
+    const pe = p5s_bar * 1e5; // Pa (equilibrium pressure)
+    const Vs = shockSpeed; // m/s
     
     const drivenGas = currentExperiment.before.shystSetting.drivenGas;
+    const M7_target = targetMach || 6.0;
     
     try {
-        // 가스 물성치 (Driven 가스만 사용)
-        const drivenProps = getGasProperties(drivenGas);
+        console.log('='.repeat(60));
+        console.log('ESTCN-style Flow Condition Calculation');
+        console.log('='.repeat(60));
+        console.log(`Input: gas=${drivenGas}, p1=${p1} Pa, T1=${T1} K, Vs=${Vs} m/s, pe=${pe} Pa, M7=${M7_target}`);
         
-        const mw1 = drivenProps.mw;
-        const R1 = R_universal / mw1;
-        const isMix = drivenProps.X_He !== undefined;
+        // ========================================
+        // ESTCN 방식 계산 시작
+        // ========================================
         
-        // Stage 1: Driven 초기
-        const g1 = isMix ? calcGammaFromT_mix(t1, drivenProps.X_He) : calcGammaFromT(t1, drivenGas);
-        const a1 = Math.sqrt(g1 * R1 * t1);
-        const rho1 = p1 / (R1 * t1);
-        const cp1 = isMix ? calcCpFromT_mix(t1, drivenProps.X_He, mw1) : calcCpFromT(t1, drivenGas, mw1);
-        const h1 = cp1 * t1;
-        const s1 = calcEntropy(t1, p1, drivenGas, mw1);
-        const h1_total = h1;  // u1 = 0
-        const mu1 = calcViscosity(t1, drivenGas);
+        // State 1: Pre-shock condition
+        const state1 = new GasState(drivenGas);
+        state1.set_pT(p1, T1);
+        console.log('State 1: pre-shock condition');
+        state1.write_state();
+        
+        // State 2: Post-incident-shock condition
+        console.log('Start incident-shock calculation.');
+        const state2 = new GasState(drivenGas);
+        state2.set_pT(p1, T1);
+        const [V2, Vg] = normal_shock(state1, Vs, state2);
+        console.log('State 2: post-shock condition.');
+        state2.write_state();
+        console.log(`  V2: ${V2.toFixed(3)} m/s, Vg: ${Vg.toFixed(3)} m/s`);
+        
+        // State 5: Reflected-shock condition
+        console.log('Start reflected-shock calculation.');
+        const state5 = new GasState(drivenGas);
+        state5.set_pT(state2.p, state2.T);
+        const Vr = reflected_shock(state2, Vg, state5);
+        console.log('State 5: reflected-shock condition.');
+        state5.write_state();
+        console.log(`  Vr: ${Vr.toFixed(3)} m/s`);
+        
+        // State 5s: Equilibrium condition (isentropic relaxation to pe)
+        console.log('Start calculation of isentropic relaxation.');
+        const state5s = state5.clone();
+        let V5s = 0;
+        
+        if (pe && Math.abs(pe - state5.p) > 1) {
+            // Isentropic expansion from state5 (stagnation) to pe
+            const p_ratio = pe / state5.p;
+            const [expanded_state, V_expanded] = expand_from_stagnation(p_ratio, state5);
+            
+            // Copy properties
+            state5s.p = expanded_state.p;
+            state5s.T = expanded_state.T;
+            state5s.rho = expanded_state.rho;
+            state5s.h = expanded_state.h;
+            state5s.e = expanded_state.e;
+            state5s.s = expanded_state.s;
+            state5s.a = expanded_state.a;
+            state5s.gam = expanded_state.gam;
+            state5s.Cp = expanded_state.Cp;
+            state5s.mu = expanded_state.mu;
+            V5s = V_expanded;
+        }
+        
+        console.log('State 5s: equilibrium condition (relaxation to pe)');
+        state5s.write_state();
+        
+        // Enthalpy difference (H5s - H1)
+        const H5s_H1 = state5s.h - state1.h;
+        console.log(`Enthalpy difference (H5s - H1): ${H5s_H1.toExponential(5)} J/kg = ${(H5s_H1 / 1e6).toFixed(4)} MJ/kg`);
+        
+        // State 6: Nozzle throat (M = 1)
+        console.log('Start isentropic relaxation to throat (Mach 1)');
+        const { state6, V6, mflux6 } = expansion_to_throat(state5s);
+        const M6 = V6 / state6.a;
+        console.log('State 6: Nozzle-throat condition (relaxation to M=1)');
+        state6.write_state();
+        console.log(`  V6: ${V6.toFixed(2)} m/s, M6: ${M6.toFixed(6)}, mflux6: ${mflux6.toFixed(1)} kg/s/m²`);
+        
+        // State 7: Nozzle exit (target Mach)
+        console.log(`Start isentropic relaxation to nozzle exit (M=${M7_target})`);
+        const { state7, V7 } = expansion_to_mach(state5s, M7_target);
+        const M7_calc = V7 / state7.a;
+        const mflux7 = state7.rho * V7;
+        console.log('State 7: Nozzle-exit condition');
+        state7.write_state();
+        console.log(`  V7: ${V7.toFixed(2)} m/s, M7: ${M7_calc.toFixed(5)}, mflux7: ${mflux7.toFixed(1)} kg/s/m²`);
+        
+        // Pitot pressure calculation
+        let pitot7;
+        if (M7_calc > 1) {
+            const g = state7.gam;
+            const M = M7_calc;
+            const term1 = Math.pow((g + 1) * M * M / 2, g / (g - 1));
+            const term2 = Math.pow((2 * g * M * M - (g - 1)) / (g + 1), 1 / (1 - g));
+            pitot7 = state7.p * term1 * term2;
+        } else {
+            const g = state7.gam;
+            const M = M7_calc;
+            pitot7 = state7.p * Math.pow(1 + (g - 1) / 2 * M * M, g / (g - 1));
+        }
+        console.log(`  pitot: ${pitot7.toExponential(5)} Pa, pitot7_on_p5s: ${(pitot7 / state5s.p).toFixed(6)}`);
+        
+        console.log('Done with reflected shock tube calculation.');
+        console.log('='.repeat(60));
+        
+        // ========================================
+        // 결과 변환 (기존 형식으로)
+        // ========================================
+        
+        // Total enthalpy calculations
+        const h1_total = state1.h;  // u1 = 0
+        const h2_total = state2.h + 0.5 * Vg * Vg;
+        const h5_total = state5.h;  // u5 = 0 (stagnation)
+        const h5s_total = state5s.h + 0.5 * V5s * V5s;  // Should equal h5_total
+        const h6_total = state6.h + 0.5 * V6 * V6;
+        const h7_total = state7.h + 0.5 * V7 * V7;
+        
+        // Unit Reynolds number calculations
         const Re_unit1 = 0;  // u1 = 0
-        
-        const stage1 = {
-            p: p1, t: t1, rho: rho1, u: 0, h: h1, h_total: h1_total / 1e6, R: R1,
-            gamma: g1, cp: cp1, a: a1, s: s1, V: 0, M: 0,
-            mu: mu1, Re_unit: Re_unit1 / 1e6
-        };
-        
-        // 충격파 마하수
-        const M = shockSpeed / a1;
-        
-        // Stage 2: 충격파 후
-        const state2Raw = calcIncidentShock(M, p1, t1, drivenGas, mw1, R1, isMix ? drivenProps.X_He : null);
-        const g2 = isMix ? calcGammaFromT_mix(state2Raw.t, drivenProps.X_He) : calcGammaFromT(state2Raw.t, drivenGas);
-        const cp2 = isMix ? calcCpFromT_mix(state2Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state2Raw.t, drivenGas, mw1);
-        const a2 = Math.sqrt(g2 * R1 * state2Raw.t);
-        const h2 = cp2 * state2Raw.t;
-        const s2 = calcEntropy(state2Raw.t, state2Raw.p, drivenGas, mw1);
-        const h2_total = h2 + 0.5 * state2Raw.u * state2Raw.u;
-        const mu2 = calcViscosity(state2Raw.t, drivenGas);
-        const Re_unit2 = (state2Raw.rho * state2Raw.u) / mu2;
-        
-        const stage2 = {
-            p: state2Raw.p, t: state2Raw.t, rho: state2Raw.rho, u: state2Raw.u, h: h2, h_total: h2_total / 1e6, R: R1,
-            gamma: g2, cp: cp2, a: a2, s: s2, V: state2Raw.u, M: state2Raw.u / a2,
-            mu: mu2, Re_unit: Re_unit2 / 1e6
-        };
-        
-        // Stage 5: 반사 충격파 후
-        const p2_p1 = state2Raw.p / p1;
-        const state5Raw = calcReflectedShock(state2Raw.p, state2Raw.t, state2Raw.rho, state2Raw.u, p2_p1, drivenGas, mw1, R1, isMix ? drivenProps.X_He : null);
-        const g5 = isMix ? calcGammaFromT_mix(state5Raw.t, drivenProps.X_He) : calcGammaFromT(state5Raw.t, drivenGas);
-        const cp5 = isMix ? calcCpFromT_mix(state5Raw.t, drivenProps.X_He, mw1) : calcCpFromT(state5Raw.t, drivenGas, mw1);
-        const a5 = Math.sqrt(g5 * R1 * state5Raw.t);
-        const h5 = cp5 * state5Raw.t;
-        const s5 = calcEntropy(state5Raw.t, state5Raw.p, drivenGas, mw1);
-        const h5_total = h5;  // u5 = 0
-        const mu5 = calcViscosity(state5Raw.t, drivenGas);
+        const Re_unit2 = (state2.rho * Vg) / state2.mu;
         const Re_unit5 = 0;  // u5 = 0
+        const Re_unit5s = (state5s.rho * V5s) / state5s.mu;
+        const Re_unit6 = (state6.rho * V6) / state6.mu;
+        const Re_unit7 = (state7.rho * V7) / state7.mu;
         
-        const stage5 = {
-            p: state5Raw.p, t: state5Raw.t, rho: state5Raw.rho, u: 0, h: h5, h_total: h5_total / 1e6, R: R1,
-            gamma: g5, cp: cp5, a: a5, s: s5, V: 0, M: 0,
-            mu: mu5, Re_unit: Re_unit5 / 1e6
-        };
-        
-        // Stage 5s: 측정 압력 기준 안정화 (등엔트로피 과정)
-        const s5_target = s5;
-        let t5s = state5Raw.t * Math.pow(p5s / state5Raw.p, (g5 - 1) / g5);  // 초기 추정
-        
-        // 엔트로피 보존: s(T5s, p5s) = s(T5, p5)
-        for (let iter = 0; iter < 10; iter++) {
-            const s5s_calc = calcEntropy(t5s, p5s, drivenGas, mw1);
-            const error = s5s_calc - s5_target;
-            
-            if (Math.abs(error / s5_target) < 1e-8) break;
-            
-            // 수치 미분
-            const delta = t5s * 1e-6;
-            const s5s_plus = calcEntropy(t5s + delta, p5s, drivenGas, mw1);
-            const ds_dT = (s5s_plus - s5s_calc) / delta;
-            
-            if (Math.abs(ds_dT) > 1e-15) {
-                t5s = t5s - error / ds_dT;
-                t5s = Math.max(200, Math.min(6000, t5s));
-            }
-        }
-        
-        const g5s = isMix ? calcGammaFromT_mix(t5s, drivenProps.X_He) : calcGammaFromT(t5s, drivenGas);
-        const rho5s = p5s / (R1 * t5s);
-        const a5s = Math.sqrt(g5s * R1 * t5s);
-        const cp5s = isMix ? calcCpFromT_mix(t5s, drivenProps.X_He, mw1) : calcCpFromT(t5s, drivenGas, mw1);
-        const h5s = cp5s * t5s;
-        const s5s = calcEntropy(t5s, p5s, drivenGas, mw1);
-        const h5s_total = h5s;  // u5s = 0
-        const mu5s = calcViscosity(t5s, drivenGas);
-        const Re_unit5s = 0;  // u5s = 0
-        
-        const stage5s = {
-            p: p5s, t: t5s, rho: rho5s, u: 0, h: h5s, h_total: h5s_total / 1e6, R: R1,
-            gamma: g5s, cp: cp5s, a: a5s, s: s5s, V: 0, M: 0,
-            mu: mu5s, Re_unit: Re_unit5s / 1e6
-        };
-        
-        // Stage 6: 노즐 목 (M=1)
-        const state6 = calcState7(stage5s, 1.0, drivenProps, drivenGas);
-        
-        if (!state6) {
-            alert('State 6 (노즐 목) 계산에 실패했습니다.');
-            return;
-        }
-        
-        // Stage 7: 시험부 (등엔트로피 팽창)
-        const M7 = targetMach || 6.0;
-        const state7 = calcState7(stage5s, M7, drivenProps, drivenGas);
-        
-        if (!state7) {
-            alert('State 7 (시험부) 계산에 실패했습니다.');
-            return;
-        }
-        
-        // 결과 저장
+        // 결과 저장 (기존 형식 유지)
         currentExperiment.calculation.stages = {
-            stage1: stage1,
-            stage2: stage2,
-            stage5: stage5,
-            stage5s: stage5s,
-            stage6: state6,
-            stage7: state7
+            stage1: {
+                p: state1.p, t: state1.T, rho: state1.rho, u: 0,
+                h: state1.h, h_total: h1_total / 1e6, R: state1.R,
+                gamma: state1.gam, cp: state1.Cp, a: state1.a, s: state1.s,
+                V: 0, M: 0, mu: state1.mu, Re_unit: Re_unit1 / 1e6
+            },
+            stage2: {
+                p: state2.p, t: state2.T, rho: state2.rho, u: Vg,
+                h: state2.h, h_total: h2_total / 1e6, R: state2.R,
+                gamma: state2.gam, cp: state2.Cp, a: state2.a, s: state2.s,
+                V: Vg, M: Vg / state2.a, V2: V2, Vg: Vg,
+                mu: state2.mu, Re_unit: Re_unit2 / 1e6
+            },
+            stage5: {
+                p: state5.p, t: state5.T, rho: state5.rho, u: 0,
+                h: state5.h, h_total: h5_total / 1e6, R: state5.R,
+                gamma: state5.gam, cp: state5.Cp, a: state5.a, s: state5.s,
+                V: 0, M: 0, Vr: Vr,
+                mu: state5.mu, Re_unit: Re_unit5 / 1e6
+            },
+            stage5s: {
+                p: state5s.p, t: state5s.T, rho: state5s.rho, u: V5s,
+                h: state5s.h, h_total: h5s_total / 1e6, R: state5s.R,
+                gamma: state5s.gam, cp: state5s.Cp, a: state5s.a, s: state5s.s,
+                V: V5s, M: V5s / state5s.a,
+                mu: state5s.mu, Re_unit: Re_unit5s / 1e6,
+                H5s_H1: H5s_H1, H5s_H1_MJ: H5s_H1 / 1e6
+            },
+            stage6: {
+                p: state6.p, t: state6.T, rho: state6.rho, u: V6,
+                h: state6.h, h_total: h6_total / 1e6, R: state6.R,
+                gamma: state6.gam, cp: state6.Cp, a: state6.a, s: state6.s,
+                V: V6, M: M6, mflux: mflux6,
+                mu: state6.mu, Re_unit: Re_unit6 / 1e6
+            },
+            stage7: {
+                p: state7.p, t: state7.T, rho: state7.rho, u: V7,
+                h: state7.h, h_total: h7_total / 1e6, R: state7.R,
+                gamma: state7.gam, cp: state7.Cp, a: state7.a, s: state7.s,
+                V: V7, M: M7_calc, mflux: mflux7,
+                mu: state7.mu, Re_unit: Re_unit7 / 1e6,
+                pitot: pitot7, pitot_on_p5s: pitot7 / state5s.p
+            }
         };
+        
+        // 추가 정보 저장
+        currentExperiment.calculation.enthalpy_MJ = H5s_H1 / 1e6;
+        currentExperiment.calculation.shock_speed = Vs;
+        currentExperiment.calculation.reflected_shock_speed = Vr;
         
         currentExperiment.status = 'completed';
         
         await saveExperiment(currentExperiment);
         
-        alert('✅ 유동조건 계산이 완료되었습니다!');
+        alert('✅ 유동조건 계산이 완료되었습니다!\n\n' +
+              `엔탈피 (H5s - H1): ${(H5s_H1 / 1e6).toFixed(4)} MJ/kg\n` +
+              `시험부 마하수: ${M7_calc.toFixed(3)}\n` +
+              `시험부 속도: ${V7.toFixed(1)} m/s`);
         
         // 결과 표시
         displayCalculationResults(currentExperiment.calculation.stages);
@@ -552,19 +601,30 @@ function createStageCard(title, state) {
     const properties = [];
     
     if (state.M !== undefined && state.M !== 0) {
-        properties.push({ label: 'M', value: state.M.toFixed(3) });
+        properties.push({ label: 'M', value: state.M.toFixed(4) });
     }
     
     properties.push(
         { label: 'P [bar]', value: (state.p / 1e5).toFixed(4) },
         { label: 'T [K]', value: state.t ? state.t.toFixed(2) : 'N/A' },
-        { label: 'ρ [kg/m³]', value: state.rho ? state.rho.toFixed(4) : 'N/A' },
+        { label: 'ρ [kg/m³]', value: state.rho ? state.rho.toFixed(5) : 'N/A' },
         { label: 'u [m/s]', value: state.u !== undefined ? state.u.toFixed(2) : 'N/A' },
         { label: 'a [m/s]', value: state.a ? state.a.toFixed(2) : 'N/A' }
     );
     
+    // 엔탈피 (h = e + p/rho)
+    if (state.h !== undefined) {
+        properties.push({ label: 'h [kJ/kg]', value: (state.h / 1000).toFixed(2) });
+    }
+    
+    // 토탈 엔탈피 (h + 0.5*u^2)
     if (state.h_total !== undefined) {
-        properties.push({ label: 'h_total [MJ/kg]', value: state.h_total.toFixed(3) });
+        properties.push({ label: 'h_total [MJ/kg]', value: state.h_total.toFixed(4) });
+    }
+    
+    // 엔트로피 (등엔트로피 과정 검증용)
+    if (state.s !== undefined) {
+        properties.push({ label: 's [J/kg·K]', value: state.s.toFixed(1) });
     }
     
     properties.push(
@@ -573,7 +633,16 @@ function createStageCard(title, state) {
     );
     
     if (state.Re_unit !== undefined && state.Re_unit !== 0) {
-        properties.push({ label: 'Re/m [×10⁶/m]', value: state.Re_unit.toFixed(2) });
+        properties.push({ label: 'Re/m [×10⁶/m]', value: state.Re_unit.toFixed(3) });
+    }
+    
+    // 특수 값들
+    if (state.H5s_H1_MJ !== undefined) {
+        properties.push({ label: '(H5s-H1) [MJ/kg]', value: state.H5s_H1_MJ.toFixed(4) });
+    }
+    
+    if (state.pitot !== undefined) {
+        properties.push({ label: 'pitot [bar]', value: (state.pitot / 1e5).toFixed(4) });
     }
     
     let html = `<h4>${title}</h4>`;
