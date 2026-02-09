@@ -80,7 +80,9 @@ function loadCalculationInputs() {
     const before = currentExperiment.before || {};
     
     // 필수 데이터 체크
-    const hasRequiredData = after.p1_avg && after.t1_avg && after.p5_avg && after.shockSpeed;
+    const hasRequiredData = after.t1_avg !== undefined && after.t1_avg !== null && 
+                           after.p5_avg && after.shockSpeed && 
+                           before.expInfo?.drivenPressure !== undefined;
     
     if (!hasRequiredData) {
         document.getElementById('calc-data-check').style.display = 'block';
@@ -92,7 +94,10 @@ function loadCalculationInputs() {
     document.getElementById('calc-data-check').style.display = 'none';
     document.getElementById('calc-input-section').style.display = 'block';
     
-    document.getElementById('calc-p1').value = after.p1_avg || '';
+    // p1은 실험 전 드리븐 압력[barg] + 1 bar
+    const p1_calculated = 1.0 + (before.expInfo?.drivenPressure || 0);
+    
+    document.getElementById('calc-p1').value = p1_calculated.toFixed(4);
     document.getElementById('calc-t1').value = after.t1_avg || '';
     document.getElementById('calc-p5s').value = after.p5_avg || '';
     document.getElementById('calc-shock-speed').value = after.shockSpeed || '';
@@ -346,14 +351,22 @@ async function calculateFlowConditions() {
     }
     
     // 입력값 수집
-    const p1_bar = currentExperiment.after.labviewLog.p1_avg;
+    // p1은 실험 전 입력한 드리븐 압력[barg] + 1 bar (절대압)
+    const drivenPressureBarg = currentExperiment.before.expInfo.drivenPressure || 0;
+    const p1_bar = 1.0 + drivenPressureBarg;  // [bar] 절대압
+    
     const t1_celsius = currentExperiment.after.labviewLog.t1_avg;  // °C 단위!
     const p5s_bar = currentExperiment.after.labviewLog.p5_avg;
     const shockSpeed = currentExperiment.after.labviewLog.shockSpeed;
     const targetMach = currentExperiment.before.expInfo.targetMach;
     
-    if (!p1_bar || t1_celsius === undefined || t1_celsius === null || !p5s_bar || !shockSpeed) {
-        alert('실험 후 데이터(p1, T1, p5_avg, shock_speed)를 먼저 입력해주세요.\n\n데이터 후처리 탭에서 먼저 처리를 완료해주세요.');
+    if (t1_celsius === undefined || t1_celsius === null || !p5s_bar || !shockSpeed) {
+        alert('실험 후 데이터(T1, p5_avg, shock_speed)를 먼저 입력해주세요.\n\n데이터 후처리 탭에서 먼저 처리를 완료해주세요.');
+        return;
+    }
+    
+    if (drivenPressureBarg === undefined || drivenPressureBarg === null) {
+        alert('실험 전 정보에서 드리븐 압력[barg]을 먼저 입력해주세요.');
         return;
     }
     
