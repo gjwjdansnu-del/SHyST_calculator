@@ -25,6 +25,11 @@ const ESTCN_GAS_MW = {
     h2: 2.0160
 };
 
+// Enthalpy offset to avoid negative values
+// Based on ESTCN State 1 (300K, 1.2bar): h_ESTCN = 302227 J/kg, h_NASA ≈ 2057 J/kg
+// Offset = 300000 J/kg (rounded for simplicity)
+const ESTCN_H_OFFSET = 300000; // J/kg
+
 // NASA 7-coefficient polynomial coefficients
 // cp/R = a1 + a2*T + a3*T^2 + a4*T^3 + a5*T^4
 // h/RT = a1 + a2*T/2 + a3*T^2/3 + a4*T^3/4 + a5*T^4/5 + a6/T
@@ -176,10 +181,10 @@ class GasState {
             
             this.Cv = this.Cp - this.R;
             
-            // 이상 기체 엔탈피: h = Cp * T (기준점 0K)
-            this.h = this.Cp * this.T;
+            // 이상 기체 엔탈피: h = Cp * T (기준점 0K) + 오프셋
+            this.h = this.Cp * this.T + ESTCN_H_OFFSET;
             
-            // Internal energy: e = h - R*T = Cv * T
+            // Internal energy: e = Cv * T (오프셋 없음, 내부 에너지는 상대값)
             this.e = this.Cv * this.T;
             
             // 이상 기체 엔트로피: s = Cp*ln(T/T_ref) - R*ln(p/p_ref)
@@ -219,12 +224,12 @@ class GasState {
         // gamma = Cp / Cv
         this.gam = this.Cp / this.Cv;
         
-        // Enthalpy from NASA polynomial: h = (h/RT) * R * T
+        // Enthalpy from NASA polynomial + 오프셋: h = (h/RT) * R * T + offset
         const hOverRT = this._calcHOverRT();
-        this.h = hOverRT * this.R * this.T;
+        this.h = hOverRT * this.R * this.T + ESTCN_H_OFFSET;
         
-        // Internal energy: e = h - p/rho = h - R*T
-        this.e = this.h - this.R * this.T;
+        // Internal energy: e = Cv * T (오프셋 없음, 내부 에너지는 상대값)
+        this.e = this.Cv * this.T;
         
         // Entropy: s = R * (s°/R - ln(p/p_ref))
         const sOverR = this._calcSOverR();
