@@ -157,6 +157,58 @@ class GasState {
         // Density from ideal gas law
         this.rho = this.p / (this.R * this.T);
         
+        // ============================================
+        // 200K 이하: 이상 기체 가정 (ESTCN 방식)
+        // 상온(300K) 물성을 그대로 사용
+        // ============================================
+        if (this.T < 200) {
+            // 이상 기체 물성 (상온 기준, ESTCN과 동일)
+            if (this.gasType === 'air') {
+                this.Cp = 1022.1;    // J/kg·K (상온 값)
+                this.gam = 1.39053;  // 상온 값
+            } else if (this.gasType === 'co2') {
+                this.Cp = 846.0;     // J/kg·K (상온 값)
+                this.gam = 1.289;    // 상온 값
+            } else {
+                this.Cp = 1022.1;
+                this.gam = 1.39053;
+            }
+            
+            this.Cv = this.Cp - this.R;
+            
+            // 이상 기체 엔탈피: h = Cp * T (기준점 0K)
+            this.h = this.Cp * this.T;
+            
+            // Internal energy: e = h - R*T = Cv * T
+            this.e = this.Cv * this.T;
+            
+            // 이상 기체 엔트로피: s = Cp*ln(T/T_ref) - R*ln(p/p_ref)
+            // 200K에서의 엔트로피를 기준으로 연속성 유지
+            const T_boundary = 200;
+            const p_ref = 101325;
+            
+            // 200K에서의 NASA polynomial 엔트로피 계산
+            const a = ESTCN_NASA_COEFFS[this.gasType].low.a;
+            const T_b = T_boundary;
+            const sOverR_200 = a[0]*Math.log(T_b) + a[1]*T_b + a[2]*T_b*T_b/2 + a[3]*T_b*T_b*T_b/3 + a[4]*T_b*T_b*T_b*T_b/4 + a[6];
+            const s_200_at_pref = this.R * sOverR_200;
+            
+            // 200K 기준으로 이상 기체 엔트로피 계산
+            this.s = s_200_at_pref + this.Cp * Math.log(this.T / T_boundary) - this.R * Math.log(this.p / p_ref);
+            
+            // Speed of sound
+            this.a = Math.sqrt(this.gam * this.R * this.T);
+            
+            // Viscosity (Sutherland's law still works at low T)
+            this.mu = this._calcViscosity();
+            
+            return;
+        }
+        
+        // ============================================
+        // 200K 이상: NASA polynomial 사용
+        // ============================================
+        
         // Cp from NASA polynomial
         const CpOverR = this._calcCpOverR();
         this.Cp = CpOverR * this.R;
@@ -237,16 +289,18 @@ class GasState {
      * Set state from pressure and entropy (isentropic process)
      * This is the key function for isentropic expansions.
      * Uses Newton-Raphson iteration to find T such that s(p, T) = s_target.
+     * 
+     * Note: For T < 200K, ideal gas assumption is used (ESTCN method).
      */
     set_ps(p, s_target) {
         this.p = p;
         
         // Initial guess: use current temperature
         let T = this.T;
-        if (T < 200 || T > 10000) T = 300;
+        if (T < 50 || T > 10000) T = 300;
         
         const tol = 1e-6;
-        const maxIter = 50;
+        const maxIter = 100;  // Increased for low temperature convergence
         
         for (let iter = 0; iter < maxIter; iter++) {
             this.T = T;
@@ -260,7 +314,7 @@ class GasState {
             }
             
             // Numerical derivative ds/dT
-            const dT = T * 0.001;
+            const dT = Math.max(T * 0.001, 0.1);  // Minimum step for low T
             this.T = T + dT;
             this._updateFromPT();
             const s_plus = this.s;
@@ -280,8 +334,8 @@ class GasState {
                 T_new = T + Math.sign(delta) * 0.5 * T;
             }
             
-            // Clamp to valid range
-            T_new = Math.max(200, Math.min(10000, T_new));
+            // Clamp to valid range (allow down to 50K for high Mach expansions)
+            T_new = Math.max(50, Math.min(10000, T_new));
             T = T_new;
         }
         
