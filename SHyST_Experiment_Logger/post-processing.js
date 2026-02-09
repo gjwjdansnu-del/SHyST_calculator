@@ -326,10 +326,12 @@ async function processData() {
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
         const p_t = (currentExperiment.before.shystSetting.vacuumGauge || 0) * 0.00133322; // Torr to bar
         const p_a = (currentExperiment.before.shystSetting.airPressure || 1013) / 1000; // hPa to bar
+        const p_driven = 1.0 + (currentExperiment.before.expInfo.drivenPressure || 0); // 드리븐 절대압 [bar]
         
         console.log('실험 조건:', {
             FPS: FPS,
             p_t: p_t,
+            p_driven: p_driven,
             p_a: p_a,
             vacuumGauge_Torr: currentExperiment.before.shystSetting.vacuumGauge,
             airPressure_hPa: currentExperiment.before.shystSetting.airPressure
@@ -422,7 +424,7 @@ async function processData() {
         try {
             console.log('=== Step 3: 전압 → 물리량 변환 ===');
             updateProgress(40, '3/7 전압 → 물리량 변환 중...');
-            convertedData = convertVoltageToPhysical(slicedData, uploadedDAQConnection, p_t, p_a);
+            convertedData = convertVoltageToPhysical(slicedData, uploadedDAQConnection, p_t, p_a, p_driven);
             console.log('✅ 변환 완료:', convertedData);
         } catch (e) {
             console.error('❌ Step 3 실패 (변환):', e);
@@ -814,7 +816,7 @@ function sliceData(expData, centerIndex, fps) {
 // 6. 전압 → 물리량 변환
 // ============================================
 
-function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a) {
+function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a, p_driven) {
     console.log('전압 → 물리량 변환 시작...');
     
     const convertedChannels = {};
@@ -845,15 +847,20 @@ function convertVoltageToPhysical(slicedData, daqConnection, p_t, p_a) {
         // 원본 Python: 초반 2500개 평균을 V0로 사용
         const V0 = voltageData.slice(0, 2500).reduce((sum, v) => sum + v, 0) / 2500;
         
+        // driven7, driven8은 드리븐 압력 기준 사용
+        const desc = config.description.toLowerCase();
+        const useDriverPressure = desc.includes('driven7') || desc.includes('driven8');
+        const p_base = useDriverPressure ? p_driven : p_t;
+        
         const convertedData = voltageData.map(v => 
-            convertSingleValue(v, config, p_t, p_a, V0)
+            convertSingleValue(v, config, p_base, p_a, V0)
         );
         
         convertedChannels[channelName] = convertedData;
         convertedCount++;
         
         const sampleConverted = convertedData.slice(0, 3);
-        console.log(`✅ 포트 ${portNum} 변환 완료: ${config.description} (${config.calibration}), 샘플: [${sampleConverted.map(v => v.toFixed(4)).join(', ')}]`);
+        console.log(`✅ 포트 ${portNum} 변환 완료: ${config.description} (${config.calibration}), p_base=${p_base.toFixed(4)}, 샘플: [${sampleConverted.map(v => v.toFixed(4)).join(', ')}]`);
     }
     
     console.log(`변환 완료: ${convertedCount}개 변환, ${skippedCount}개 스킵`);
@@ -1096,11 +1103,22 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps,
         model_front_time: null
     };
     
-    // p1 (driven7 초반 평균)
+    // ⚠️ 주의: p1, p4는 실험 전 입력값 기준으로 계산해야 함!
+    // filteredData는 이미 전압→압력 변환이 완료된 상태이지만,
+    // 기준점이 잘못되어 있을 수 있음.
+    // 
+    // 올바른 방법:
+    // 1. p1 = 1 + 드리븐압력[barg] (실험 전 입력값)
+    // 2. p4, p5는 전압 변화량 × 기울기 + p1
+    
+    // p1은 실험 전 입력값에서 계산 (유동조건 계산에서 사용)
+    // 여기서는 참고용으로만 표시
     if (driven7Ch !== null) {
         const data = filteredData.channels[`ch${driven7Ch}`];
         if (data) {
             const baseline = data.slice(0, Math.min(1000, data.length));
+            // 주의: 이 값은 전압→압력 변환된 값이므로 부정확할 수 있음
+            // 실제 p1은 유동조건 계산에서 실험 전 입력값 사용
             measurements.p1_avg = average(baseline);
         }
     }
