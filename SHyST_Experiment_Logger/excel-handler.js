@@ -76,7 +76,7 @@ function createAllExperimentsSheet(experiments) {
         });
     });
     
-    headers.push('Re7', 'h_tot7');
+    headers.push('Re7 (/m)', 'h_tot7 (J/kg)');
     
     data.push(headers);
     
@@ -137,12 +137,12 @@ function createAllExperimentsSheet(experiments) {
             }
         });
         
-        // Re7, h_tot7
+        // Re7 [/m], h_tot7 [J/kg]
         const stage7 = exp.calculation.stages.stage7;
-        // Re_unit은 이미 /m 단위 (×10⁶으로 나눈 값)
-        row.push(stage7 && stage7.Re_unit ? stage7.Re_unit * 1e6 : '');
-        // h_total은 MJ/kg 단위이므로 J/kg로 변환
-        row.push(stage7 && stage7.h_total ? stage7.h_total * 1e6 : '');
+        // Re_unit은 ×10⁶/m 단위로 저장되어 있으므로 /m로 변환
+        row.push(stage7 && stage7.Re_unit !== undefined && stage7.Re_unit !== null ? stage7.Re_unit * 1e6 : '');
+        // h_total은 MJ/kg 단위로 저장되어 있으므로 J/kg로 변환
+        row.push(stage7 && stage7.h_total !== undefined && stage7.h_total !== null ? stage7.h_total * 1e6 : '');
         
         data.push(row);
     });
@@ -468,13 +468,17 @@ function parseExcelToExperiments(jsonData) {
             
             // Stage 7에 Re7, h_tot7 추가
             if (stageKey === 'stage7') {
-                const Re7_per_m = parseFloat(row[colIndex + 12]) || null;
-                const h_tot7_J = parseFloat(row[colIndex + 13]) || null;
+                // 엑셀에서 읽은 값: Re7 [/m], h_tot7 [J/kg]
+                const Re7_per_m = parseFloat(row[colIndex + 12]);
+                const h_tot7_J = parseFloat(row[colIndex + 13]);
                 
-                // Re_unit: /m 단위를 ×10⁶으로 나눈 값으로 저장
-                if (Re7_per_m) stage.Re_unit = Re7_per_m / 1e6;
-                // h_total: J/kg를 MJ/kg로 변환하여 저장
-                if (h_tot7_J) stage.h_total = h_tot7_J / 1e6;
+                // DB 저장 형식: Re_unit [×10⁶/m], h_total [MJ/kg]
+                if (!isNaN(Re7_per_m) && Re7_per_m !== null) {
+                    stage.Re_unit = Re7_per_m / 1e6;
+                }
+                if (!isNaN(h_tot7_J) && h_tot7_J !== null) {
+                    stage.h_total = h_tot7_J / 1e6;
+                }
             }
             
             exp.calculation.stages[stageKey] = stage.p ? stage : null;
