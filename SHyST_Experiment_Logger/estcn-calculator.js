@@ -787,12 +787,11 @@ function calculateShockTunnel(params) {
     // ========================================
     // State 5s: Equilibrium condition (isentropic relaxation to pe)
     // ========================================
-    let state5s = state5;
+    let state5s = state5.clone();  // 항상 복사!
     let V5s = 0;
     
     if (pe && pe !== state5.p) {
         console.log('Start calculation of isentropic relaxation.');
-        state5s = state5.clone();
         
         // Isentropic expansion from state5 to pe
         // State 5 is stagnation (u = 0), so we use expand_from_stagnation
