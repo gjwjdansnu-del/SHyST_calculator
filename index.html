@@ -21,69 +21,7 @@
             padding: 20px;
         }
 
-        .password-screen {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            padding: 50px;
-            max-width: 450px;
-            width: 100%;
-            text-align: center;
-        }
-
-        .password-screen h1 {
-            font-size: 2em;
-            margin-bottom: 20px;
-            color: #333;
-        }
-
-        .password-screen p {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 1.1em;
-        }
-
-        .password-screen input {
-            width: 100%;
-            padding: 15px;
-            font-size: 1.1em;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            transition: border-color 0.3s;
-        }
-
-        .password-screen input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .password-screen button {
-            width: 100%;
-            padding: 15px;
-            font-size: 1.1em;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            font-weight: bold;
-        }
-
-        .password-screen button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .password-error {
-            color: #e74c3c;
-            margin-top: 15px;
-            font-weight: bold;
-        }
-
         .menu-screen {
-            display: none;
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
@@ -150,15 +88,6 @@
     </style>
 </head>
 <body>
-    <!-- 비밀번호 화면 -->
-    <div id="password-screen" class="password-screen">
-        <h1>🔒 APL SHyST 통합 시스템</h1>
-        <p>이 사이트는 비밀번호로 보호되어 있습니다.</p>
-        <input type="password" id="password-input" placeholder="비밀번호 입력" onkeypress="if(event.key==='Enter') checkPassword()">
-        <button onclick="checkPassword()">접속</button>
-        <p id="password-error" class="password-error"></p>
-    </div>
-
     <!-- 메뉴 선택 화면 -->
     <div id="menu-screen" class="menu-screen">
         <h1>🚀 APL SHyST 통합 시스템</h1>
@@ -192,24 +121,6 @@
     </div>
 
     <script>
-        // 비밀번호 체크
-        function checkPassword() {
-            const input = document.getElementById('password-input');
-            const error = document.getElementById('password-error');
-            const password = input.value;
-
-            // 비밀번호: apl13041313!
-            if (password === 'apl13041313!') {
-                document.getElementById('password-screen').style.display = 'none';
-                document.getElementById('menu-screen').style.display = 'block';
-                error.textContent = '';
-            } else {
-                error.textContent = '❌ 비밀번호가 올바르지 않습니다.';
-                input.value = '';
-                input.focus();
-            }
-        }
-
         // 계산기로 이동
         function goToCalculator() {
             window.location.href = 'ShockTube_Calculator_Web_v5/index.html';
@@ -219,11 +130,6 @@
         function goToLogger() {
             window.location.href = 'SHyST_Experiment_Logger/index.html';
         }
-
-        // 페이지 로드 시 포커스
-        window.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('password-input').focus();
-        });
     </script>
 </body>
 </html>
