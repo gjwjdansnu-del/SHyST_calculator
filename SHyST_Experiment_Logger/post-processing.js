@@ -915,13 +915,47 @@ function convertSingleValue(voltage, config, p_t, p_a, V0) {
     }
 }
 
-// E-type 열전대 변환 (간단한 다항식 근사)
+// E-type 열전대 변환 (NIST ITS-90 표준 다항식)
 function voltToKelvinE(volt) {
-    // 실제 E-type 열전대 변환은 복잡한 다항식
-    // 여기서는 간단한 선형 근사 사용
-    // 실제로는 NIST 표준 다항식 사용 필요
-    const T_celsius = volt * 17.0; // 대략적인 변환 (mV 기준)
-    return T_celsius + 273.15;
+    // Convert volts to millivolts
+    const mv = volt * 1000;
+    
+    // NIST ITS-90 coefficients for -200°C ~ 0°C (-8.825 ~ 0 mV)
+    const coeffsNegative = [
+        0.0000000E+00, 1.6977288E+01, -4.3514970E-01, -1.5859697E-01,
+        -9.2502871E-02, -2.6084314E-02, -4.1360199E-03, -3.4034030E-04,
+        -1.1564890E-05
+    ];
+    
+    // NIST ITS-90 coefficients for 0°C ~ 1000°C (0 ~ 76.373 mV)
+    const coeffsPositive = [
+        0.0000000E+00, 1.7057035E+01, -2.3301759E-01, 6.5435585E-03,
+        -7.3562749E-05, -1.7896001E-06, 8.4036165E-08, -1.3735879E-09,
+        1.0629823E-11, -3.2447087E-14
+    ];
+    
+    let celsius;
+    
+    // Check range and apply appropriate coefficients
+    if (mv >= -8.825 && mv <= 0) {
+        // Negative range: -200°C ~ 0°C
+        celsius = 0;
+        for (let i = 0; i < coeffsNegative.length; i++) {
+            celsius += coeffsNegative[i] * Math.pow(mv, i);
+        }
+    } else if (mv > 0 && mv <= 76.373) {
+        // Positive range: 0°C ~ 1000°C
+        celsius = 0;
+        for (let i = 0; i < coeffsPositive.length; i++) {
+            celsius += coeffsPositive[i] * Math.pow(mv, i);
+        }
+    } else {
+        // Out of range: return NaN
+        return NaN;
+    }
+    
+    // Convert Celsius to Kelvin
+    return celsius + 273.15;
 }
 
 // ============================================
