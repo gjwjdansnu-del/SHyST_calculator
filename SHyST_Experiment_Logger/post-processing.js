@@ -67,14 +67,7 @@ async function handleExpDataUpload(event) {
         
         // 2번째 시트 읽기 (데이터). 시트가 1개뿐이면 1번째 시트 사용
         const dataSheetIndex = workbook.SheetNames.length >= 2 ? 1 : 0;
-        const dataSheetName = workbook.SheetNames[dataSheetIndex];
-        let worksheet = dataSheetName != null ? workbook.Sheets[dataSheetName] : null;
-        if (!worksheet && workbook.Sheets) {
-            const sheetKeys = Object.keys(workbook.Sheets);
-            if (sheetKeys.length > dataSheetIndex) {
-                worksheet = workbook.Sheets[sheetKeys[dataSheetIndex]];
-            }
-        }
+        const worksheet = Object.values(workbook.Sheets)[dataSheetIndex];
         if (!worksheet) {
             const names = (workbook.SheetNames || []).join(', ');
             throw new Error('데이터 시트를 찾을 수 없습니다. 시트 목록: [' + names + '], 인덱스: ' + dataSheetIndex);
