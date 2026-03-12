@@ -53,7 +53,8 @@ async function handleExpDataUpload(event) {
         console.log('✅ ArrayBuffer 크기:', arrayBuffer.byteLength);
         
         console.log('⏳ XLSX 파싱 시작...');
-        const workbook = XLSX.read(arrayBuffer, { sheets: undefined, dense: false });
+        const uint8 = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(uint8, { type: 'array', sheets: [0, 1] });
         console.log('✅ Workbook 로드 완료. 시트 수:', workbook.SheetNames.length);
         console.log('시트 이름:', workbook.SheetNames);
         
