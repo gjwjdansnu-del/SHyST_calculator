@@ -16,7 +16,7 @@
     <div class="app-container">
         <!-- 헤더 -->
                 <header class="app-header">
-                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.45</span></h1>
+                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.46</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -28,9 +28,9 @@
 
         <!-- 네비게이션 탭 -->
         <nav class="nav-tabs">
-            <button class="tab-btn active" onclick="switchTab('before')">📝 실험 전 (Before)</button>
-            <button class="tab-btn" onclick="switchTab('processing')">🔬 데이터 후처리 (Processing)</button>
-            <button class="tab-btn" onclick="switchTab('calculation')">🧮 유동조건 계산 (Calculation)</button>
+            <button class="tab-btn active" data-tab="before" onclick="switchTab('before')">📝 실험 전 (Before)</button>
+            <button class="tab-btn" data-tab="processing" onclick="switchTab('processing')">🔬 데이터 후처리 (Processing)</button>
+            <button class="tab-btn" data-tab="calculation" onclick="switchTab('calculation')">🧮 유동조건 계산 (Calculation)</button>
         </nav>
 
         <!-- 메인 컨텐츠 -->

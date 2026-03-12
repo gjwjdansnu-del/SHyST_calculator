@@ -65,9 +65,13 @@ async function handleExpDataUpload(event) {
         
         console.log('시트1 B5에서 읽은 채널 수:', numChannels);
         
-        // 2번째 시트 읽기 (데이터)
-        const sheet2Name = workbook.SheetNames[1];
-        const worksheet = workbook.Sheets[sheet2Name];
+        // 2번째 시트 읽기 (데이터). 시트가 1개뿐이면 1번째 시트 사용
+        const dataSheetIndex = workbook.SheetNames.length >= 2 ? 1 : 0;
+        const dataSheetName = workbook.SheetNames[dataSheetIndex];
+        const worksheet = workbook.Sheets[dataSheetName];
+        if (!worksheet) {
+            throw new Error('데이터 시트를 찾을 수 없습니다.');
+        }
         
         // JSON으로 변환 (헤더 포함)
         const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
@@ -135,6 +139,10 @@ async function handleDAQConnectionUpload(event) {
 // ============================================
 
 function parseExpData(jsonData, expectedNumChannels) {
+    if (!jsonData || !Array.isArray(jsonData) || jsonData.length === 0) {
+        throw new Error('실험 데이터가 비어있거나 형식이 올바르지 않습니다. (시트에 데이터가 있는지, 2번째 시트가 데이터 시트인지 확인하세요.)');
+    }
+    
     console.log('실험 데이터 파싱 시작:', {
         totalRows: jsonData.length,
         expectedChannels: expectedNumChannels,
@@ -143,6 +151,10 @@ function parseExpData(jsonData, expectedNumChannels) {
     
     // 첫 행은 헤더 (전압_0, 전압_1, ...)
     const headers = jsonData[0];
+    if (!headers || !Array.isArray(headers)) {
+        throw new Error('실험 데이터의 첫 행(헤더)을 읽을 수 없습니다. 시트 형식(전압_0, 전압_1, ...)을 확인하세요.');
+    }
+    
     const dataRows = jsonData.slice(1);
     
     // 헤더에서 포트 번호 추출

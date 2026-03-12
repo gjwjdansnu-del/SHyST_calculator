@@ -59,9 +59,11 @@ function switchTab(tabName) {
         content.classList.remove('active');
     });
     
-    // 선택된 탭 활성화
-    event.target.classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    // 선택된 탭 버튼·컨텐츠 활성화 (프로그래밍 호출 시 event 없음 → tabName으로 찾음)
+    const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    if (tabBtn) tabBtn.classList.add('active');
+    const tabContent = document.getElementById(`tab-${tabName}`);
+    if (tabContent) tabContent.classList.add('active');
     
     // 계산 탭으로 전환 시 입력값 자동 로드
     if (tabName === 'calculation') {
