@@ -7,8 +7,10 @@ let rawDataFiles = [];
 let parsedData = {};
 let chartData = null;
 
-// 파일 업로드 핸들러
-document.getElementById('raw-data-upload').addEventListener('change', function(e) {
+// 파일 업로드 핸들러 (해당 요소가 있을 때만 등록, Logger 페이지에서는 없음)
+const rawDataUploadEl = document.getElementById('raw-data-upload');
+if (rawDataUploadEl) {
+rawDataUploadEl.addEventListener('change', function(e) {
     const files = Array.from(e.target.files);
     
     files.forEach(file => {
@@ -36,6 +38,7 @@ document.getElementById('raw-data-upload').addEventListener('change', function(e
         reader.readAsText(file);
     });
 });
+}
 
 // CSV 데이터 파싱
 function parseCSVData(content, filename) {

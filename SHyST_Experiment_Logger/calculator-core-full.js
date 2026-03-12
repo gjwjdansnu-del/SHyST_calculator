@@ -1066,8 +1066,10 @@ function findTailoredCompositionForP4(p4, p1, t1, t4, drivenProps, initialMach) 
 // ============================================
 
 function toggleMixRatio() {
-    const driverGas = document.getElementById('driver-gas').value;
+    const driverGasEl = document.getElementById('driver-gas');
     const mixRow = document.getElementById('mix-ratio-row');
+    if (!mixRow) return;
+    const driverGas = driverGasEl ? driverGasEl.value : '';
     mixRow.style.display = driverGas === 'mix' ? 'flex' : 'none';
 }
 
@@ -2721,9 +2723,9 @@ function applyFlowCondition() {
     calculate();
 }
 
-// 페이지 로드 시 초기화
+// 페이지 로드 시 초기화 (계산기 페이지에 해당 요소가 있을 때만)
 document.addEventListener('DOMContentLoaded', function() {
-    toggleMixRatio();
+    if (document.getElementById('mix-ratio-row')) toggleMixRatio();
     
     // Canvas 초기화
     const simCanvas = document.getElementById('sim-gif-canvas');

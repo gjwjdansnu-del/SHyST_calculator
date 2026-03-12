@@ -68,9 +68,16 @@ async function handleExpDataUpload(event) {
         // 2번째 시트 읽기 (데이터). 시트가 1개뿐이면 1번째 시트 사용
         const dataSheetIndex = workbook.SheetNames.length >= 2 ? 1 : 0;
         const dataSheetName = workbook.SheetNames[dataSheetIndex];
-        const worksheet = workbook.Sheets[dataSheetName];
+        let worksheet = workbook.Sheets[dataSheetName];
+        // 시트 이름으로 못 찾으면(특수문자 등) 인덱스로 시트 키 찾기
+        if (!worksheet && workbook.Sheets) {
+            const sheetKeys = Object.keys(workbook.Sheets);
+            if (sheetKeys.length > dataSheetIndex) {
+                worksheet = workbook.Sheets[sheetKeys[dataSheetIndex]];
+            }
+        }
         if (!worksheet) {
-            throw new Error('데이터 시트를 찾을 수 없습니다.');
+            throw new Error('데이터 시트를 찾을 수 없습니다. (시트 이름: ' + (dataSheetName || '') + ')');
         }
         
         // JSON으로 변환 (헤더 포함)

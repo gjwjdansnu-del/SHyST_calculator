@@ -594,8 +594,8 @@ canvas {
 }
 
 .vertical-slider {
-    writing-mode: bt-lr;
-    -webkit-appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;
     width: 16px;
     height: 220px;
 }
