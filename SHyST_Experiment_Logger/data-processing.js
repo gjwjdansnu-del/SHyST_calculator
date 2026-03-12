@@ -7,37 +7,32 @@ let rawDataFiles = [];
 let parsedData = {};
 let chartData = null;
 
-// 파일 업로드 핸들러 (해당 요소가 있을 때만 등록, Logger 페이지에서는 없음)
-const rawDataUploadEl = document.getElementById('raw-data-upload');
-if (rawDataUploadEl) {
-rawDataUploadEl.addEventListener('change', function(e) {
-    const files = Array.from(e.target.files);
-    
-    files.forEach(file => {
-        const reader = new FileReader();
-        
-        reader.onload = function(event) {
-            const content = event.target.result;
-            const parsed = parseCSVData(content, file.name);
-            
-            if (parsed) {
-                rawDataFiles.push({
-                    name: file.name,
-                    size: file.size,
-                    type: file.type,
-                    data: parsed
-                });
-                
-                parsedData[file.name] = parsed;
-                
-                updateUploadedFilesList();
-                visualizeData();
-            }
-        };
-        
-        reader.readAsText(file);
+// 파일 업로드 핸들러 (DOM 준비 후 등록, Logger 페이지에는 해당 요소 없음)
+function initRawDataUpload() {
+    const rawDataUploadEl = document.getElementById('raw-data-upload');
+    if (!rawDataUploadEl || !rawDataUploadEl.addEventListener) return;
+    rawDataUploadEl.addEventListener('change', function(e) {
+        const files = Array.from(e.target.files);
+        files.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const content = event.target.result;
+                const parsed = parseCSVData(content, file.name);
+                if (parsed) {
+                    rawDataFiles.push({ name: file.name, size: file.size, type: file.type, data: parsed });
+                    parsedData[file.name] = parsed;
+                    updateUploadedFilesList();
+                    visualizeData();
+                }
+            };
+            reader.readAsText(file);
+        });
     });
-});
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initRawDataUpload);
+} else {
+    initRawDataUpload();
 }
 
 // CSV 데이터 파싱

@@ -68,8 +68,7 @@ async function handleExpDataUpload(event) {
         // 2번째 시트 읽기 (데이터). 시트가 1개뿐이면 1번째 시트 사용
         const dataSheetIndex = workbook.SheetNames.length >= 2 ? 1 : 0;
         const dataSheetName = workbook.SheetNames[dataSheetIndex];
-        let worksheet = workbook.Sheets[dataSheetName];
-        // 시트 이름으로 못 찾으면(특수문자 등) 인덱스로 시트 키 찾기
+        let worksheet = dataSheetName != null ? workbook.Sheets[dataSheetName] : null;
         if (!worksheet && workbook.Sheets) {
             const sheetKeys = Object.keys(workbook.Sheets);
             if (sheetKeys.length > dataSheetIndex) {
@@ -77,11 +76,23 @@ async function handleExpDataUpload(event) {
             }
         }
         if (!worksheet) {
-            throw new Error('데이터 시트를 찾을 수 없습니다. (시트 이름: ' + (dataSheetName || '') + ')');
+            const names = (workbook.SheetNames || []).join(', ');
+            throw new Error('데이터 시트를 찾을 수 없습니다. 시트 목록: [' + names + '], 인덱스: ' + dataSheetIndex);
         }
         
-        // JSON으로 변환 (헤더 포함)
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+        // JSON으로 변환 (헤더 포함) → 배열의 배열
+        const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        if (!Array.isArray(rawRows) || rawRows.length === 0) {
+            throw new Error('데이터 시트가 비어있거나 형식이 올바르지 않습니다. (반환: ' + (Array.isArray(rawRows) ? '빈 배열' : typeof rawRows) + ')');
+        }
+        
+        // 헤더 행 찾기: 첫 행이 '전압_0' 등이 없으면 다음 행들에서 탐색 (제목 행이 있는 경우 대비)
+        const headerRowIndex = findHeaderRowIndex(rawRows);
+        if (headerRowIndex < 0) {
+            throw new Error('헤더 행을 찾을 수 없습니다. 시트에 "전압_0", "전압_1" 등이 포함된 행이 있어야 합니다. 첫 행 샘플: ' + JSON.stringify((rawRows[0] || []).slice(0, 5)));
+        }
+        
+        const jsonData = [rawRows[headerRowIndex]].concat(rawRows.slice(headerRowIndex + 1));
         
         // 데이터 파싱
         uploadedExpData = parseExpData(jsonData, numChannels);
@@ -145,6 +156,23 @@ async function handleDAQConnectionUpload(event) {
 // 2. 데이터 파싱
 // ============================================
 
+/** 시트에서 '전압_0', '전압_1' 등이 포함된 첫 행 인덱스 반환. 없으면 -1 */
+function findHeaderRowIndex(rawRows) {
+    if (!rawRows || !Array.isArray(rawRows)) return -1;
+    const re = /전압_\d+/;
+    for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (!row) continue;
+        const arr = Array.isArray(row) ? row : Object.values(row);
+        const hasHeader = arr.some(function (cell) {
+            const s = cell != null ? String(cell).trim() : '';
+            return re.test(s);
+        });
+        if (hasHeader) return i;
+    }
+    return -1;
+}
+
 function parseExpData(jsonData, expectedNumChannels) {
     if (!jsonData || !Array.isArray(jsonData) || jsonData.length === 0) {
         throw new Error('실험 데이터가 비어있거나 형식이 올바르지 않습니다. (시트에 데이터가 있는지, 2번째 시트가 데이터 시트인지 확인하세요.)');
@@ -158,32 +186,30 @@ function parseExpData(jsonData, expectedNumChannels) {
     
     // 첫 행은 헤더 (전압_0, 전압_1, ...)
     const headers = jsonData[0];
-    if (!headers || !Array.isArray(headers)) {
+    if (headers == null || !Array.isArray(headers)) {
         throw new Error('실험 데이터의 첫 행(헤더)을 읽을 수 없습니다. 시트 형식(전압_0, 전압_1, ...)을 확인하세요.');
     }
     
     const dataRows = jsonData.slice(1);
     
-    // 헤더에서 포트 번호 추출
-    // "전압_0" -> 0, "전압_1" -> 1, ...
-    // 중요: 포트 번호는 연속적이지 않을 수 있음 (예: 0,1,2,4,5,6,7 - 3이 빠짐)
-    const portNumbers = headers.map(header => {
-        if (typeof header === 'string') {
-            const match = header.match(/전압_(\d+)/);
-            if (match) {
-                return parseInt(match[1]);
-            }
-        }
-        return null;
+    // 헤더에서 포트 번호 추출 ("전압_0" -> 0, ...). 객체 행이면 값만 배열로 사용
+    const headerCells = Array.isArray(headers) ? headers : Object.values(headers);
+    const portNumbers = headerCells.map(function (cell) {
+        const s = cell != null ? String(cell).trim() : '';
+        const match = s.match(/전압_(\d+)/);
+        return match ? parseInt(match[1], 10) : null;
     });
     
-    // 실제 포트 번호만 추출 (null 제외)
-    const validPortNumbers = portNumbers.filter(p => p !== null);
+    const validPortNumbers = portNumbers.filter(function (p) { return p !== null; });
+    
+    if (validPortNumbers.length === 0) {
+        throw new Error('헤더에서 전압_0, 전압_1 등 포트 번호를 찾을 수 없습니다. 첫 행: ' + JSON.stringify(headerCells.slice(0, 8)));
+    }
     
     console.log('추출된 포트 번호:', validPortNumbers);
     console.log('포트 번호 범위:', {
-        min: Math.min(...validPortNumbers),
-        max: Math.max(...validPortNumbers),
+        min: Math.min.apply(null, validPortNumbers),
+        max: Math.max.apply(null, validPortNumbers),
         count: validPortNumbers.length
     });
     
