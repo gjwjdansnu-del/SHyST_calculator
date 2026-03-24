@@ -248,7 +248,8 @@ async function processDataStep2() {
         
         updateProgress(10, '1/3 압력 상승 감지 중...');
         
-        const {filteredData, FPS} = step1Results;
+        const {filteredData, FPS, driverPressureMissingMode} = step1Results;
+        const sliceStartMs = driverPressureMissingMode ? -5 : -1;
         
         // 슬라이더에서 시험 시작/길이 가져오기
         const testStartMs = parseFloat(document.getElementById('test-time-start-slider').value);
