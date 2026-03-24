@@ -1166,7 +1166,8 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps,
         testTimeStartMs = null,
         distanceMeters = 0.5,
         t1FromBefore = null,
-        indicesOrigin = 'slice'
+        indicesOrigin = 'slice',
+        driverPressureMissingMode = false
     } = options;
     
     const measurements = {
@@ -1209,8 +1210,9 @@ function calculateMeasurements(filteredData, daqConnection, testTimeResult, fps,
     }
     
     // p4, p5 (driven7, driven8의 시험시간 구간 평균)
+    // Driver 압력 미측정 모드에서는 p4/p4_std/t4_avg를 공란(null)으로 유지
     if (testTimeResult.startIndex !== null && testTimeResult.endIndex !== null) {
-        if (driven7Ch !== null) {
+        if (!driverPressureMissingMode && driven7Ch !== null) {
             const data = filteredData.channels[`ch${driven7Ch}`];
             if (data) {
                 const testRegion = data.slice(testTimeResult.startIndex, testTimeResult.endIndex);

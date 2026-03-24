@@ -16,7 +16,7 @@
     <div class="app-container">
         <!-- 헤더 -->
                 <header class="app-header">
-                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.53</span></h1>
+                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.54</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -220,6 +220,14 @@
                                 Model Front 압력 상승 감지
                             </label>
                             <small style="color: #666;">필요한 경우에만 체크</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="driver-pressure-missing-mode" style="width: auto; margin-right: 5px;">
+                                Driver 압력 미측정 모드 (driven7 상승 기준)
+                            </label>
+                            <small style="color: #666;">ON: driven7 상승 시점을 기준으로 -1ms부터 슬라이싱, p4/p4_std/T4는 공란 처리</small>
                         </div>
                     </div>
                 </div>

@@ -21,9 +21,11 @@ async function processDataStep1() {
         
         // 사용자 입력 옵션
         const driverThresholdCoeff = parseFloat(document.getElementById('driver-threshold-coeff').value) || 3;
+        const driverPressureMissingMode = document.getElementById('driver-pressure-missing-mode')?.checked === true;
         
         console.log('=== 1단계 처리 시작 ===');
         console.log('Driver 임계값 계수:', driverThresholdCoeff);
+        console.log('Driver 압력 미측정 모드:', driverPressureMissingMode);
         
         // 실험 조건
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
@@ -35,30 +37,87 @@ async function processDataStep1() {
         
         console.log('실험 조건:', {FPS, p_t, p_a, p_driven});
         
-        // Step 1: Driver 압력 강하 감지
-        updateProgress(20, '1/4 Driver 압력 강하 감지 중...');
+        // Step 1: 기준 시점 감지 (기본: Driver 하강, 미측정모드: driven7 상승)
+        let referenceIndex = null;
+        let referenceMode = 'driverDrop';
+        let driverIndex = null;
         
-        const driverChannel = findDriverChannel(uploadedDAQConnection);
-        if (driverChannel === null) {
-            throw new Error('Driver 채널을 찾을 수 없습니다.');
+        if (!driverPressureMissingMode) {
+            updateProgress(20, '1/4 Driver 압력 강하 감지 중...');
+            const driverChannel = findDriverChannel(uploadedDAQConnection);
+            if (driverChannel === null) {
+                throw new Error('Driver 채널을 찾을 수 없습니다.');
+            }
+            
+            const channelKey = `ch${driverChannel}`;
+            const driverData = uploadedExpData.channels[channelKey];
+            if (!driverData) {
+                throw new Error(`Driver 포트 ${driverChannel}의 데이터가 없습니다.`);
+            }
+            
+            driverIndex = findDriverDropIndex(driverData, FPS, driverThresholdCoeff);
+            if (driverIndex === null) {
+                throw new Error('Driver 압력 강하를 감지할 수 없습니다.');
+            }
+            referenceIndex = driverIndex;
+            console.log('✅ Driver 압력 강하:', driverIndex);
+        } else {
+            updateProgress(20, '1/4 Driven7 압력 상승 감지 중...');
+            const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
+            if (driven7Channel === null) {
+                throw new Error('Driven7 채널을 찾을 수 없습니다. (Driver 압력 미측정 모드)');
+            }
+            
+            const channelKey = `ch${driven7Channel}`;
+            const driven7Raw = uploadedExpData.channels[channelKey];
+            if (!driven7Raw) {
+                throw new Error(`Driven7 포트 ${driven7Channel}의 데이터가 없습니다.`);
+            }
+            
+            const config = uploadedDAQConnection.find(c => c.channel === driven7Channel);
+            if (!config) {
+                throw new Error(`Driven7 포트 ${driven7Channel} 설정(DAQ Connection)을 찾을 수 없습니다.`);
+            }
+            
+            const sampleCount = Math.min(2500, driven7Raw.length);
+            const V0 = driven7Raw.slice(0, sampleCount).reduce((sum, v) => sum + v, 0) / Math.max(1, sampleCount);
+            const desc = (config.description || '').toLowerCase();
+            const useDriverPressure = desc.includes('driven7') || desc.includes('driven8');
+            const coeffB = Number.isFinite(config.coeffB) ? config.coeffB : 0;
+            const useDrivenBaseline = useDriverPressure && config.calibration === 'p_t+a(V-c)+b' && Number.isFinite(p_driven);
+            const p_base = useDrivenBaseline ? (p_driven - coeffB) : p_t;
+            const driven7Converted = driven7Raw.map(v => convertSingleValue(v, config, p_base, p_a, V0));
+            
+            let driven7Filtered = driven7Converted;
+            const pnValueRaw = (config.partNumber || config.PN || '').toString().trim().toLowerCase();
+            if (pnValueRaw.includes('pcb') && pnValueRaw.includes('113b22')) {
+                driven7Filtered = lowpassFilter(driven7Converted, 500000, FPS);
+            } else if (pnValueRaw.includes('medtherm') && pnValueRaw.includes('thermocouple')) {
+                driven7Filtered = movingAverage(driven7Converted, 300);
+            } else if (pnValueRaw.includes('pcb') && pnValueRaw.includes('132b38')) {
+                driven7Filtered = bandpassFilter(driven7Converted, 11000, 1000000, FPS);
+            }
+            
+            const pressureSliderValue = parseFloat(document.getElementById('pressure-threshold-slider')?.value);
+            const pressureThreshold = Number.isFinite(pressureSliderValue)
+                ? pressureSliderValue
+                : Math.max(0.1, p_driven * 0.5);
+            const riseSearchStartMs = 2;
+            const riseSearchStartIdx = Math.floor((riseSearchStartMs / 1000) * FPS);
+            referenceIndex = findPressureRise(driven7Filtered, FPS, {
+                startIndex: riseSearchStartIdx,
+                pressureThreshold
+            });
+            if (referenceIndex === null) {
+                throw new Error('Driven7 압력 상승을 감지할 수 없습니다. (Driver 압력 미측정 모드)');
+            }
+            referenceMode = 'driven7Rise';
+            console.log('✅ Driven7 압력 상승 기준:', referenceIndex);
         }
-        
-        const channelKey = `ch${driverChannel}`;
-        const driverData = uploadedExpData.channels[channelKey];
-        if (!driverData) {
-            throw new Error(`Driver 포트 ${driverChannel}의 데이터가 없습니다.`);
-        }
-        
-        const driverIndex = findDriverDropIndex(driverData, FPS, driverThresholdCoeff);
-        if (driverIndex === null) {
-            throw new Error('Driver 압력 강하를 감지할 수 없습니다.');
-        }
-        
-        console.log('✅ Driver 압력 강하:', driverIndex);
         
         // Step 2: 데이터 슬라이싱
         updateProgress(40, '2/4 데이터 슬라이싱 중...');
-        const slicedData = sliceData(uploadedExpData, driverIndex, FPS);
+        const slicedData = sliceData(uploadedExpData, referenceIndex, FPS);
         console.log('✅ 슬라이싱 완료');
         
         // Step 3: 전압 → 물리량 변환
@@ -77,7 +136,10 @@ async function processDataStep1() {
             convertedData,
             filteredData,
             FPS,
-            driverIndex
+            driverIndex,
+            referenceIndex,
+            referenceMode,
+            driverPressureMissingMode
         };
         
         // 그래프 그리기
@@ -218,7 +280,8 @@ async function processDataStep2() {
             timeOffsetStartMs: sliceStartMs,
             indicesOrigin: 'slice',
             testTimeStartMs: testStartMs,
-            t1FromBefore
+            t1FromBefore,
+            driverPressureMissingMode: step1Results.driverPressureMissingMode === true
         });
         console.log('✅ 측정값 계산 완료:', measurements);
         
@@ -229,6 +292,7 @@ async function processDataStep2() {
             filteredData: filteredData,
             measurements: measurements,
             driverIndex: step1Results.driverIndex ?? null,
+            driverPressureMissingMode: step1Results.driverPressureMissingMode === true,
             driven7Index,
             driven8Index,
             modelFrontIndex,
