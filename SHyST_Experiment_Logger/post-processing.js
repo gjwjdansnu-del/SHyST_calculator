@@ -832,10 +832,12 @@ function findDriverDropIndex(driverData, fps, thresholdCoeff = 3) {
 // 5. 데이터 슬라이싱
 // ============================================
 
-function sliceData(expData, centerIndex, fps) {
-    // -1ms ~ 30ms 구간
-    const startOffset = Math.floor(fps * 0.001); // -1ms
-    const endOffset = Math.floor(fps * 0.030);   // +30ms
+function sliceData(expData, centerIndex, fps, options = {}) {
+    // 기본값: -1ms ~ +30ms, 필요 시 옵션으로 조정
+    const preMs = Number.isFinite(options.preMs) ? options.preMs : 1.0;
+    const postMs = Number.isFinite(options.postMs) ? options.postMs : 30.0;
+    const startOffset = Math.floor(fps * (preMs / 1000));
+    const endOffset = Math.floor(fps * (postMs / 1000));
     
     const startIndex = Math.max(0, centerIndex - startOffset);
     const endIndex = Math.min(expData.numSamples, centerIndex + endOffset);

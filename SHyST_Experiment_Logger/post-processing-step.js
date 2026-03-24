@@ -143,7 +143,10 @@ async function processDataStep1() {
         
         // Step 2: 데이터 슬라이싱
         updateProgress(40, '2/4 데이터 슬라이싱 중...');
-        const slicedData = sliceData(uploadedExpData, referenceIndex, FPS);
+        const sliceOptions = driverPressureMissingMode
+            ? { preMs: 5, postMs: 30 }
+            : { preMs: 1, postMs: 30 };
+        const slicedData = sliceData(uploadedExpData, referenceIndex, FPS, sliceOptions);
         console.log('✅ 슬라이싱 완료');
         
         // Step 3: 전압 → 물리량 변환
@@ -201,12 +204,13 @@ async function processDataStep1() {
         // 그래프 섹션 표시
         document.getElementById('graph-section').style.display = 'block';
         
-        // 슬라이더 범위 설정 (-1ms ~ 30ms)
-        document.getElementById('test-time-start-slider').min = -1;
+        // 슬라이더 범위 설정 (기본 -1ms~30ms, 미측정 모드 -5ms~30ms)
+        const startMinMs = driverPressureMissingMode ? -5 : -1;
+        document.getElementById('test-time-start-slider').min = startMinMs;
         document.getElementById('test-time-start-slider').max = 30;
         document.getElementById('test-time-start-slider').value = 0;
         document.getElementById('test-time-length-slider').min = 0;
-        document.getElementById('test-time-length-slider').max = 31;
+        document.getElementById('test-time-length-slider').max = 30 - startMinMs;
         document.getElementById('test-time-length-slider').value = 30;
         
         updateTestTimeLines();
@@ -265,7 +269,8 @@ async function processDataStep2() {
         let modelFrontIndex = null;
         
         const riseSearchStartMs = 2;
-        const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * FPS);
+        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+        const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs - sliceStartMs) / 1000 * FPS));
         
         // 압력 임계값 가져오기
         const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider').value);
@@ -296,8 +301,8 @@ async function processDataStep2() {
         // Step 6: 시험시간 (수동 입력값 사용)
         updateProgress(50, '2/3 시험시간 설정 중...');
         
-        const startIndex = Math.floor((testStartMs + 1) / 1000 * FPS); // -1ms 기준점 보정
-        const endIndex = Math.floor((testEndMs + 1) / 1000 * FPS);
+        const startIndex = Math.max(0, Math.floor((testStartMs - sliceStartMs) / 1000 * FPS));
+        const endIndex = Math.max(startIndex, Math.floor((testEndMs - sliceStartMs) / 1000 * FPS));
         
         const testTimeResult = {
             startIndex: startIndex,
@@ -307,17 +312,12 @@ async function processDataStep2() {
         
         console.log('시험시간 결과:', testTimeResult);
         
-        const resolvedDriven7Index = (step1Results.driverPressureMissingMode === true && Number.isFinite(step1Results.referenceIndex))
-            ? Math.max(0, step1Results.referenceIndex - (step1Results.slicedData?.startIndex || 0))
-            : driven7Index;
-
         // Step 7: 측정값 계산
         updateProgress(80, '3/3 측정값 계산 중...');
         const t1FromBefore = currentExperiment?.before?.shystSetting?.drivenTemp ?? currentExperiment?.before?.shystSetting?.airTemp ?? null;
-        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
         const measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS, {
             driverIndex: step1Results.driverIndex ?? null,
-            driven7Index: resolvedDriven7Index,
+            driven7Index,
             driven8Index,
             modelFrontIndex,
             timeOffsetStartMs: sliceStartMs,
@@ -336,7 +336,7 @@ async function processDataStep2() {
             measurements: measurements,
             driverIndex: step1Results.driverIndex ?? null,
             driverPressureMissingMode: step1Results.driverPressureMissingMode === true,
-            driven7Index: resolvedDriven7Index,
+            driven7Index,
             driven8Index,
             modelFrontIndex,
             testTimeResult: testTimeResult
@@ -348,7 +348,7 @@ async function processDataStep2() {
         
         // 그래프에 최종 시험 구간 및 압력 상승 표시
         const riseIndices = {
-            driven7Index: resolvedDriven7Index,
+            driven7Index,
             driven8Index
         };
         drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, riseIndices);
@@ -388,9 +388,10 @@ function updateTestTimeLines() {
     
     // 그래프 다시 그리기
     if (step1Results.filteredData) {
+        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
         const tempTestTime = {
-            startIndex: Math.floor((startMs + 1) / 1000 * step1Results.FPS),
-            endIndex: Math.floor((endMs + 1) / 1000 * step1Results.FPS),
+            startIndex: Math.max(0, Math.floor((startMs - sliceStartMs) / 1000 * step1Results.FPS)),
+            endIndex: Math.max(0, Math.floor((endMs - sliceStartMs) / 1000 * step1Results.FPS)),
             testTime: finalLengthMs
         };
 
@@ -830,12 +831,15 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
     
     // 시험 시작/끝 라인 (driven8만)
     if (options.showTestLines && options.testTimeResult && options.fps) {
-        const startMs = (options.testTimeResult.startIndex / options.fps * 1000) - 1;
-        const endMs = (options.testTimeResult.endIndex / options.fps * 1000) - 1;
+        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+        const sliceEndMs = step1Results.slicedData?.timeRange?.end ?? 30;
+        const windowMs = Math.max(1e-9, sliceEndMs - sliceStartMs);
+        const startMs = (options.testTimeResult.startIndex / options.fps * 1000) + sliceStartMs;
+        const endMs = (options.testTimeResult.endIndex / options.fps * 1000) + sliceStartMs;
         
         ctx.setLineDash([5, 5]);
         
-        const startX = margin.left + (startMs + 1) / 31 * width;
+        const startX = margin.left + ((startMs - sliceStartMs) / windowMs) * width;
         ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -843,7 +847,7 @@ function drawSingleChannelGraph(canvasId, data, options = {}) {
         ctx.lineTo(startX, margin.top + height);
         ctx.stroke();
         
-        const endX = margin.left + (endMs + 1) / 31 * width;
+        const endX = margin.left + ((endMs - sliceStartMs) / windowMs) * width;
         ctx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
         ctx.beginPath();
         ctx.moveTo(endX, margin.top);
@@ -868,7 +872,8 @@ function computeRiseIndices() {
     }
     const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
     const riseSearchStartMs = 2;
-    const riseSearchStartIdx = Math.floor((riseSearchStartMs + 1) / 1000 * step1Results.FPS);
+    const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+    const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs - sliceStartMs) / 1000 * step1Results.FPS));
     const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
     const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
     
@@ -915,9 +920,10 @@ function updatePressureThreshold() {
     const startMs = parseFloat(document.getElementById('test-time-start-slider').value);
     const lengthMs = parseFloat(document.getElementById('test-time-length-slider').value);
     const endMs = Math.min(30, startMs + lengthMs);
+    const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
     const tempTestTime = {
-        startIndex: Math.floor((startMs + 1) / 1000 * step1Results.FPS),
-        endIndex: Math.floor((endMs + 1) / 1000 * step1Results.FPS),
+        startIndex: Math.max(0, Math.floor((startMs - sliceStartMs) / 1000 * step1Results.FPS)),
+        endIndex: Math.max(0, Math.floor((endMs - sliceStartMs) / 1000 * step1Results.FPS)),
         testTime: Math.max(0, endMs - startMs)
     };
     
