@@ -2,6 +2,28 @@
 // 2단계 처리: 1단계(필터링) → 그래프 확인 → 2단계(최종 계산)
 // ============================================
 
+function findRiseIndexByStdThreshold(data, fps, options = {}) {
+    if (!data || data.length === 0) return { index: null, threshold: null, mean: null, std: null };
+    const noiseWindowMs = options.noiseWindowMs ?? 1.0;
+    const stdMult = options.stdMult ?? 4.0;
+    const startIndex = options.startIndex ?? 0;
+    const noiseSamples = Math.max(10, Math.floor((noiseWindowMs / 1000) * fps));
+    const baseline = data.slice(0, Math.min(noiseSamples, data.length));
+    if (baseline.length < 2) return { index: null, threshold: null, mean: null, std: null };
+
+    const mean = baseline.reduce((s, v) => s + v, 0) / baseline.length;
+    const variance = baseline.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / baseline.length;
+    const std = Math.sqrt(variance);
+    const threshold = mean + stdMult * std;
+
+    for (let i = Math.max(0, startIndex); i < data.length; i++) {
+        if (data[i] >= threshold) {
+            return { index: i, threshold, mean, std };
+        }
+    }
+    return { index: null, threshold, mean, std };
+}
+
 // 1단계: 필터링까지만 처리하고 그래프 표시
 async function processDataStep1() {
     if (!uploadedExpData || !uploadedDAQConnection) {
@@ -22,10 +44,13 @@ async function processDataStep1() {
         // 사용자 입력 옵션
         const driverThresholdCoeff = parseFloat(document.getElementById('driver-threshold-coeff').value) || 3;
         const driverPressureMissingMode = document.getElementById('driver-pressure-missing-mode')?.checked === true;
+        const driven7NoiseWindowMs = parseFloat(document.getElementById('driven7-noise-window-ms')?.value) || 1.0;
+        const driven7RiseStdMult = parseFloat(document.getElementById('driven7-rise-std-mult')?.value) || 4.0;
         
         console.log('=== 1단계 처리 시작 ===');
         console.log('Driver 임계값 계수:', driverThresholdCoeff);
         console.log('Driver 압력 미측정 모드:', driverPressureMissingMode);
+        console.log('Driven7 노이즈 구간(ms):', driven7NoiseWindowMs, 'N:', driven7RiseStdMult);
         
         // 실험 조건
         const FPS = currentExperiment.before.shystSetting.daqSampling || 1000000;
@@ -41,6 +66,7 @@ async function processDataStep1() {
         let referenceIndex = null;
         let referenceMode = 'driverDrop';
         let driverIndex = null;
+        let driven7TriggerStats = null;
         
         if (!driverPressureMissingMode) {
             updateProgress(20, '1/4 Driver 압력 강하 감지 중...');
@@ -98,21 +124,21 @@ async function processDataStep1() {
                 driven7Filtered = bandpassFilter(driven7Converted, 11000, 1000000, FPS);
             }
             
-            const pressureSliderValue = parseFloat(document.getElementById('pressure-threshold-slider')?.value);
-            const pressureThreshold = Number.isFinite(pressureSliderValue)
-                ? pressureSliderValue
-                : Math.max(0.1, p_driven * 0.5);
             const riseSearchStartMs = 2;
             const riseSearchStartIdx = Math.floor((riseSearchStartMs / 1000) * FPS);
-            referenceIndex = findPressureRise(driven7Filtered, FPS, {
+            const triggerResult = findRiseIndexByStdThreshold(driven7Filtered, FPS, {
                 startIndex: riseSearchStartIdx,
-                pressureThreshold
+                noiseWindowMs: driven7NoiseWindowMs,
+                stdMult: driven7RiseStdMult
             });
+            referenceIndex = triggerResult.index;
             if (referenceIndex === null) {
                 throw new Error('Driven7 압력 상승을 감지할 수 없습니다. (Driver 압력 미측정 모드)');
             }
+            driven7TriggerStats = triggerResult;
             referenceMode = 'driven7Rise';
             console.log('✅ Driven7 압력 상승 기준:', referenceIndex);
+            console.log('✅ Driven7 트리거 통계:', triggerResult);
         }
         
         // Step 2: 데이터 슬라이싱
@@ -139,8 +165,21 @@ async function processDataStep1() {
             driverIndex,
             referenceIndex,
             referenceMode,
-            driverPressureMissingMode
+            driverPressureMissingMode,
+            driven7TriggerStats
         };
+
+        const triggerInfo = document.getElementById('driven7-trigger-info');
+        if (triggerInfo) {
+            if (driverPressureMissingMode && driven7TriggerStats) {
+                const triggerTimeMs = (referenceIndex / FPS * 1000).toFixed(3);
+                triggerInfo.textContent =
+                    `미측정 모드 ON | 기준=driven7 | mean=${driven7TriggerStats.mean.toFixed(4)} bar, std=${driven7TriggerStats.std.toFixed(4)} bar, ` +
+                    `threshold=${driven7TriggerStats.threshold.toFixed(4)} bar, trigger=${triggerTimeMs} ms`;
+            } else {
+                triggerInfo.textContent = '미측정 모드 OFF (기준: driver 압력 하강)';
+            }
+        }
         
         // 그래프 그리기
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
@@ -268,13 +307,17 @@ async function processDataStep2() {
         
         console.log('시험시간 결과:', testTimeResult);
         
+        const resolvedDriven7Index = (step1Results.driverPressureMissingMode === true && Number.isFinite(step1Results.referenceIndex))
+            ? Math.max(0, step1Results.referenceIndex - (step1Results.slicedData?.startIndex || 0))
+            : driven7Index;
+
         // Step 7: 측정값 계산
         updateProgress(80, '3/3 측정값 계산 중...');
         const t1FromBefore = currentExperiment?.before?.shystSetting?.drivenTemp ?? currentExperiment?.before?.shystSetting?.airTemp ?? null;
         const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
         const measurements = calculateMeasurements(filteredData, uploadedDAQConnection, testTimeResult, FPS, {
             driverIndex: step1Results.driverIndex ?? null,
-            driven7Index,
+            driven7Index: resolvedDriven7Index,
             driven8Index,
             modelFrontIndex,
             timeOffsetStartMs: sliceStartMs,
@@ -293,7 +336,7 @@ async function processDataStep2() {
             measurements: measurements,
             driverIndex: step1Results.driverIndex ?? null,
             driverPressureMissingMode: step1Results.driverPressureMissingMode === true,
-            driven7Index,
+            driven7Index: resolvedDriven7Index,
             driven8Index,
             modelFrontIndex,
             testTimeResult: testTimeResult
@@ -305,7 +348,7 @@ async function processDataStep2() {
         
         // 그래프에 최종 시험 구간 및 압력 상승 표시
         const riseIndices = {
-            driven7Index,
+            driven7Index: resolvedDriven7Index,
             driven8Index
         };
         drawFilteredDataGraph(step1Results.filteredData, uploadedDAQConnection, riseIndices);

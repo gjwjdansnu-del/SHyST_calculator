@@ -16,7 +16,7 @@
     <div class="app-container">
         <!-- 헤더 -->
                 <header class="app-header">
-                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.54</span></h1>
+                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.55</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -229,7 +229,20 @@
                             </label>
                             <small style="color: #666;">ON: driven7 상승 시점을 기준으로 -1ms부터 슬라이싱, p4/p4_std/T4는 공란 처리</small>
                         </div>
+
+                        <div class="form-group">
+                            <label>Driven7 노이즈 구간 [ms]</label>
+                            <input type="number" id="driven7-noise-window-ms" value="1.0" step="0.1" min="0.1" max="10">
+                            <small style="color: #666;">미측정 모드에서 초기 노이즈 평균/표준편차 계산 구간</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Driven7 상승 기준 N (mean + N×std)</label>
+                            <input type="number" id="driven7-rise-std-mult" value="4" step="0.1" min="1" max="20">
+                            <small style="color: #666;">미측정 모드 트리거 감지 임계 배수</small>
+                        </div>
                     </div>
+                    <p id="driven7-trigger-info" style="margin-top: 8px; font-size: 13px; color: #555;">미측정 모드 OFF</p>
                 </div>
 
                 <div class="form-section">
