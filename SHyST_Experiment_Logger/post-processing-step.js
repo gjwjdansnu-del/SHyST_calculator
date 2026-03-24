@@ -269,8 +269,8 @@ async function processDataStep2() {
         let modelFrontIndex = null;
         
         const riseSearchStartMs = 2;
-        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
-        const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs - sliceStartMs) / 1000 * FPS));
+        // 상승시점 감지는 슬라이스 시작 기준(인덱스 0)으로 탐색 시작
+        const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * FPS));
         
         // 압력 임계값 가져오기
         const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider').value);
@@ -872,8 +872,8 @@ function computeRiseIndices() {
     }
     const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
     const riseSearchStartMs = 2;
-    const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
-    const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs - sliceStartMs) / 1000 * step1Results.FPS));
+    // 슬라이더 반응성 유지를 위해 슬라이스 시작 기준으로 탐색
+    const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * step1Results.FPS));
     const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
     const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
     
