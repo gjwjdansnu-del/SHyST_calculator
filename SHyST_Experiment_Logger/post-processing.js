@@ -68,26 +68,52 @@ async function handleExpDataUpload(event) {
         console.log('Sheets 키 목록:', Object.keys(workbook.Sheets));
 
         // 데이터 시트는 파일마다 위치가 다를 수 있으므로,
-        // 모든 시트를 스캔해서 '전압_0' 헤더가 있는 시트를 자동 선택
+        // 모든 시트를 "가볍게" 스캔해서 '전압_0' 헤더가 있고 + 행 수가 큰 시트를 우선 선택
+        // (요약/설정 시트에도 '전압_' 문자열이 들어갈 수 있어, 첫 매칭으로 고르면 오검출 가능)
         const sheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
         let chosenSheetName = null;
-        let rawRows = null;
+        let chosenHeaderRowIdx = -1;
+        let bestScore = -Infinity;
+
+        const estimateRowCount = (ws) => {
+            try {
+                if (!ws || !ws['!ref']) return 0;
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                return (range && range.e && Number.isFinite(range.e.r)) ? (range.e.r + 1) : 0;
+            } catch (e) {
+                return 0;
+            }
+        };
 
         for (const name of sheetNames) {
             const ws = workbook.Sheets ? workbook.Sheets[name] : null;
             if (!ws) continue;
-            let rows;
+
+            // 상단 일부만 읽어서 헤더 여부 확인 (전체 로드는 마지막에 한 번만)
+            let rowsPreview;
             try {
-                rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 200 });
             } catch (e) {
                 continue;
             }
-            const headerRowIdx = findHeaderRowIndex(rows);
-            if (headerRowIdx >= 0) {
+            const headerRowIdx = findHeaderRowIndex(rowsPreview);
+            if (headerRowIdx < 0) continue;
+
+            const rowCount = estimateRowCount(ws);
+            // 점수: 행 수가 절대적으로 큰 시트를 우선 (실데이터는 보통 수십만~백만 행)
+            const score = rowCount;
+            if (score > bestScore) {
+                bestScore = score;
                 chosenSheetName = name;
-                rawRows = rows;
-                break;
+                chosenHeaderRowIdx = headerRowIdx;
             }
+        }
+
+        // 선택된 시트의 전체 rawRows 로드
+        let rawRows = null;
+        if (chosenSheetName) {
+            const ws = workbook.Sheets[chosenSheetName];
+            rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
         }
 
         if (!rawRows) {
@@ -102,7 +128,7 @@ async function handleExpDataUpload(event) {
         }
         
         // 헤더 행 찾기: 첫 행이 '전압_0' 등이 없으면 다음 행들에서 탐색 (제목 행이 있는 경우 대비)
-        const headerRowIndex = findHeaderRowIndex(rawRows);
+        const headerRowIndex = chosenHeaderRowIdx >= 0 ? chosenHeaderRowIdx : findHeaderRowIndex(rawRows);
         if (headerRowIndex < 0) {
             throw new Error('헤더 행을 찾을 수 없습니다. 시트에 "전압_0", "전압_1" 등이 포함된 행이 있어야 합니다. 첫 행 샘플: ' + JSON.stringify((rawRows[0] || []).slice(0, 5)));
         }
