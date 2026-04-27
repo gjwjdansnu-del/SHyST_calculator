@@ -143,7 +143,8 @@ async function handleDAQConnectionUpload(event) {
         document.getElementById('daq-status').textContent = '⏳ 로딩 중...';
         
         const arrayBuffer = await file.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer);
+        const uint8 = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(uint8, { type: 'array' });
         
         // 첫 번째 시트 읽기
         const sheetName = workbook.SheetNames[0];
@@ -307,20 +308,43 @@ function parseDAQConnection(jsonData) {
     
     console.log('DAQ Connection 파싱 시작:', jsonData.length, '개 행');
     
-    const parsed = jsonData.map((row, index) => {
-        // # 컬럼이 포트 번호
-        const portNumber = parseInt(row['#']);
-        
+    const getField = (row, keys) => {
+        for (const k of keys) {
+            if (row && Object.prototype.hasOwnProperty.call(row, k) && row[k] != null && row[k] !== '') return row[k];
+        }
+        return undefined;
+    };
+
+    const toNumber = (v) => {
+        const n = typeof v === 'number' ? v : parseFloat(String(v).trim());
+        return Number.isFinite(n) ? n : null;
+    };
+
+    const parsed = jsonData.map((row) => {
+        // 포트 번호: 다양한 헤더명 허용
+        const portRaw = getField(row, ['#', 'port', 'Port', 'PORT', 'channel', 'Channel', 'CHANNEL', '채널', '포트']);
+        const portNumber = toNumber(portRaw);
+
+        // 컬럼명 다양성 허용
+        const typeRaw = getField(row, ['type', 'Type', 'TYPE', 'sensor type', '센서타입', '센서 타입']);
+        const pnRaw = getField(row, ['PN', 'pn', 'PartNumber', 'partNumber', 'part number', '부품번호', '품번']);
+        const snRaw = getField(row, ['SN', 'sn', 'SerialNumber', 'serialNumber', 'serial number', '시리얼', '시리얼번호']);
+        const calRaw = getField(row, ['cal', 'Cal', 'CAL', 'calibration', 'Calibration', '보정식', '캘리브레이션']);
+        const aRaw = getField(row, ['a', 'A', 'coeffA', 'CoeffA']);
+        const bRaw = getField(row, ['b', 'B', 'coeffB', 'CoeffB']);
+        const descRaw = getField(row, ['etc', 'ETC', 'desc', 'Desc', 'description', 'Description', '설명', '비고']);
+        const filterRaw = getField(row, ['filter', 'Filter', 'FILTER', '필터']);
+
         const config = {
-            channel: portNumber, // 이게 "전압_X"의 X와 매칭됨
-            type: row['type'] || '',
-            partNumber: row['PN'] || '',
-            serialNumber: row['SN'] || '',
-            calibration: row['cal'] || '',
-            coeffA: parseFloat(row['a']) || 0,
-            coeffB: parseFloat(row['b']) || 0,
-            description: (row['etc'] || '').toString().toLowerCase().trim(),
-            filter: row['filter'] || ''
+            channel: portNumber,
+            type: (typeRaw ?? '').toString().trim(),
+            partNumber: (pnRaw ?? '').toString().trim(),
+            serialNumber: (snRaw ?? '').toString().trim(),
+            calibration: (calRaw ?? '').toString().trim(),
+            coeffA: toNumber(aRaw) ?? 0,
+            coeffB: toNumber(bRaw) ?? 0,
+            description: (descRaw ?? '').toString().toLowerCase().trim(),
+            filter: (filterRaw ?? '').toString().trim()
         };
         
         console.log(`DAQ 포트 ${config.channel}: ${config.description} (${config.type}, ${config.calibration}, filter:${config.filter})`);
@@ -335,10 +359,11 @@ function parseDAQConnection(jsonData) {
     
     console.log('DAQ Connection 파싱 완료:', parsed.length, '개 센서');
     
-    // 포트 번호 순으로 정렬
-    parsed.sort((a, b) => a.channel - b.channel);
+    // 유효하지 않은 행 제거 + 포트 번호 순으로 정렬
+    const filtered = parsed.filter(c => Number.isFinite(c.channel));
+    filtered.sort((a, b) => a.channel - b.channel);
     
-    return parsed;
+    return filtered;
 }
 
 // ============================================
