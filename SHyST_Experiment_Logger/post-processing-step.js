@@ -8,16 +8,20 @@ function findRiseIndexByStdThreshold(data, fps, options = {}) {
     const stdMult = options.stdMult ?? 4.0;
     const startIndex = options.startIndex ?? 0;
     const noiseSamples = Math.max(10, Math.floor((noiseWindowMs / 1000) * fps));
-    const baseline = data.slice(0, Math.min(noiseSamples, data.length));
+    const baselineRaw = data.slice(0, Math.min(noiseSamples, data.length));
+    const baseline = baselineRaw.filter(v => Number.isFinite(v));
     if (baseline.length < 2) return { index: null, threshold: null, mean: null, std: null };
 
     const mean = baseline.reduce((s, v) => s + v, 0) / baseline.length;
     const variance = baseline.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / baseline.length;
     const std = Math.sqrt(variance);
     const threshold = mean + stdMult * std;
+    if (!Number.isFinite(threshold)) return { index: null, threshold: null, mean, std };
 
     for (let i = Math.max(0, startIndex); i < data.length; i++) {
-        if (data[i] >= threshold) {
+        const v = data[i];
+        if (!Number.isFinite(v)) continue;
+        if (v >= threshold) {
             return { index: i, threshold, mean, std };
         }
     }
