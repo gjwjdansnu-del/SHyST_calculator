@@ -54,7 +54,28 @@ async function handleExpDataUpload(event) {
         
         console.log('⏳ XLSX 파싱 시작...');
         const uint8 = new Uint8Array(arrayBuffer);
-        const workbook = XLSX.read(uint8, { type: 'array', sheets: [0, 1] });
+        let workbook = XLSX.read(uint8, { type: 'array', sheets: [0, 1] });
+
+        // 일부 파일에서 SheetNames는 2개인데 Sheets가 1개만 생성되는 경우가 있어 재시도
+        const sheetNamesInitial = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
+        const sheetKeysInitial = Object.keys(workbook.Sheets || {});
+        const missingSomeSheetObject =
+            sheetNamesInitial.length >= 2 &&
+            sheetKeysInitial.length < sheetNamesInitial.length &&
+            sheetNamesInitial.some(n => !workbook.Sheets || !workbook.Sheets[n]);
+
+        if (missingSomeSheetObject) {
+            console.warn('⚠️ 일부 시트 오브젝트 누락 감지. XLSX.read 재시도합니다.', {
+                sheetNames: sheetNamesInitial,
+                sheetKeys: sheetKeysInitial
+            });
+            // 1) sheets 옵션 제거(전체 파싱) 2) dense 모드로 한 번 더 시도
+            workbook = XLSX.read(uint8, { type: 'array' });
+            const sheetKeysRetry1 = Object.keys(workbook.Sheets || {});
+            if (sheetKeysRetry1.length < (workbook.SheetNames?.length ?? 0)) {
+                workbook = XLSX.read(uint8, { type: 'array', dense: true });
+            }
+        }
         console.log('✅ Workbook 로드 완료. 시트 수:', workbook.SheetNames.length);
         console.log('시트 이름:', workbook.SheetNames);
         
