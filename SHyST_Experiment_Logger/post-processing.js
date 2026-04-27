@@ -114,8 +114,20 @@ async function handleExpDataUpload(event) {
 
             let rowsPreview;
             try {
-                // range: 0..400행 정도만 미리보기
-                rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 400 });
+                // 상단 일부(예: 400행)만 미리보기
+                // 주의: SheetJS에서 range에 숫자를 주면 "해당 행부터 시작"으로 해석될 수 있으므로
+                // !ref 기반으로 명시적 범위를 만들어 사용한다.
+                const fullRange = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null;
+                const previewRange = fullRange
+                    ? {
+                        s: { r: 0, c: fullRange.s.c ?? 0 },
+                        e: {
+                            r: Math.min(fullRange.e.r ?? 0, 400),
+                            c: fullRange.e.c ?? 0
+                        }
+                    }
+                    : { s: { r: 0, c: 0 }, e: { r: 400, c: 200 } };
+                rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: previewRange });
             } catch (e) {
                 continue;
             }
