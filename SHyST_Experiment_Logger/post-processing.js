@@ -58,26 +58,45 @@ async function handleExpDataUpload(event) {
         console.log('✅ Workbook 로드 완료. 시트 수:', workbook.SheetNames.length);
         console.log('시트 이름:', workbook.SheetNames);
         
-        // 1번째 시트에서 채널 수 읽기 (B5 셀)
+        // 시트1에서 채널 수 읽기 (B5 셀) - 없으면 null (경고용)
         const sheet1Name = workbook.SheetNames[0];
         const sheet1 = workbook.Sheets[sheet1Name];
-        const numChannelsCell = sheet1['B5'];
+        const numChannelsCell = sheet1 ? sheet1['B5'] : null;
         const numChannels = numChannelsCell ? parseInt(numChannelsCell.v) : null;
-        
         console.log('시트1 B5에서 읽은 채널 수:', numChannels);
-        
-        // 2번째 시트 읽기 (데이터). 시트가 1개뿐이면 1번째 시트 사용
-        const dataSheetIndex = workbook.SheetNames.length >= 2 ? 1 : 0;
+
         console.log('Sheets 키 목록:', Object.keys(workbook.Sheets));
-        const sheetKey = workbook.SheetNames[dataSheetIndex];
-        const worksheet = workbook.Sheets[sheetKey];
-        if (!worksheet) {
-            const names = (workbook.SheetNames || []).join(', ');
-            throw new Error('데이터 시트를 찾을 수 없습니다. 시트 목록: [' + names + '], 인덱스: ' + dataSheetIndex);
+
+        // 데이터 시트는 파일마다 위치가 다를 수 있으므로,
+        // 모든 시트를 스캔해서 '전압_0' 헤더가 있는 시트를 자동 선택
+        const sheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
+        let chosenSheetName = null;
+        let rawRows = null;
+
+        for (const name of sheetNames) {
+            const ws = workbook.Sheets ? workbook.Sheets[name] : null;
+            if (!ws) continue;
+            let rows;
+            try {
+                rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+            } catch (e) {
+                continue;
+            }
+            const headerRowIdx = findHeaderRowIndex(rows);
+            if (headerRowIdx >= 0) {
+                chosenSheetName = name;
+                rawRows = rows;
+                break;
+            }
         }
-        
-        // JSON으로 변환 (헤더 포함) → 배열의 배열
-        const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+        if (!rawRows) {
+            const names = sheetNames.join(', ');
+            const keys = Object.keys(workbook.Sheets || {}).join(', ');
+            throw new Error('데이터 시트를 찾을 수 없습니다. (전압_0 헤더 포함 시트 없음) 시트 목록: [' + names + '], Sheets 키: [' + keys + ']');
+        }
+
+        console.log('✅ 데이터 시트 선택:', chosenSheetName);
         if (!Array.isArray(rawRows) || rawRows.length === 0) {
             throw new Error('데이터 시트가 비어있거나 형식이 올바르지 않습니다. (반환: ' + (Array.isArray(rawRows) ? '빈 배열' : typeof rawRows) + ')');
         }
