@@ -7,6 +7,8 @@ function findRiseIndexByStdThreshold(data, fps, options = {}) {
     const noiseWindowMs = options.noiseWindowMs ?? 1.0;
     const stdMult = options.stdMult ?? 4.0;
     const startIndex = options.startIndex ?? 0;
+    const minStdMult = options.minStdMult ?? 1.0;
+    const stdMultStep = options.stdMultStep ?? 0.5;
     const noiseSamples = Math.max(10, Math.floor((noiseWindowMs / 1000) * fps));
     const baselineRaw = data.slice(0, Math.min(noiseSamples, data.length));
     const baseline = baselineRaw.filter(v => Number.isFinite(v));
@@ -15,17 +17,50 @@ function findRiseIndexByStdThreshold(data, fps, options = {}) {
     const mean = baseline.reduce((s, v) => s + v, 0) / baseline.length;
     const variance = baseline.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / baseline.length;
     const std = Math.sqrt(variance);
-    const threshold = mean + stdMult * std;
-    if (!Number.isFinite(threshold)) return { index: null, threshold: null, mean, std };
+    if (!Number.isFinite(mean) || !Number.isFinite(std)) return { index: null, threshold: null, mean, std };
 
+    // 상승/하강 방향 자동 판별: startIndex 이후 구간의 max/min이 baseline 대비 어느 쪽으로 더 멀리 가는지
+    let maxV = -Infinity;
+    let minV = Infinity;
     for (let i = Math.max(0, startIndex); i < data.length; i++) {
         const v = data[i];
         if (!Number.isFinite(v)) continue;
-        if (v >= threshold) {
-            return { index: i, threshold, mean, std };
+        if (v > maxV) maxV = v;
+        if (v < minV) minV = v;
+    }
+    const upSpan = Number.isFinite(maxV) ? (maxV - mean) : -Infinity;
+    const downSpan = Number.isFinite(minV) ? (mean - minV) : -Infinity;
+    const direction = upSpan >= downSpan ? 'up' : 'down';
+
+    const scanOnce = (mult) => {
+        const threshold = direction === 'up' ? (mean + mult * std) : (mean - mult * std);
+        if (!Number.isFinite(threshold)) return { index: null, threshold: null };
+        for (let i = Math.max(0, startIndex); i < data.length; i++) {
+            const v = data[i];
+            if (!Number.isFinite(v)) continue;
+            if (direction === 'up') {
+                if (v >= threshold) return { index: i, threshold };
+            } else {
+                if (v <= threshold) return { index: i, threshold };
+            }
+        }
+        return { index: null, threshold };
+    };
+
+    // 1차: 사용자가 지정한 N으로 시도
+    let usedMult = stdMult;
+    let r = scanOnce(usedMult);
+
+    // 2차: N이 너무 커서 못 잡는 경우를 대비해 N을 자동으로 낮춰 재시도
+    if (r.index == null) {
+        for (let m = stdMult - stdMultStep; m >= minStdMult; m -= stdMultStep) {
+            usedMult = m;
+            r = scanOnce(usedMult);
+            if (r.index != null) break;
         }
     }
-    return { index: null, threshold, mean, std };
+
+    return { index: r.index ?? null, threshold: r.threshold ?? null, mean, std, usedMult, direction, max: maxV, min: minV };
 }
 
 // 1단계: 필터링까지만 처리하고 그래프 표시
@@ -133,7 +168,9 @@ async function processDataStep1() {
             const triggerResult = findRiseIndexByStdThreshold(driven7Filtered, FPS, {
                 startIndex: riseSearchStartIdx,
                 noiseWindowMs: driven7NoiseWindowMs,
-                stdMult: driven7RiseStdMult
+                stdMult: driven7RiseStdMult,
+                minStdMult: 1.0,
+                stdMultStep: 0.5
             });
             referenceIndex = triggerResult.index;
             if (referenceIndex === null) {
