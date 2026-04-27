@@ -68,12 +68,10 @@ async function handleExpDataUpload(event) {
         console.log('Sheets 키 목록:', Object.keys(workbook.Sheets));
 
         // 데이터 시트는 파일마다 위치가 다를 수 있으므로,
-        // 모든 시트를 "가볍게" 스캔해서 '전압_0' 헤더가 있고 + 행 수가 큰 시트를 우선 선택
-        // (요약/설정 시트에도 '전압_' 문자열이 들어갈 수 있어, 첫 매칭으로 고르면 오검출 가능)
+        // 모든 시트를 "가볍게" 스캔해서 후보를 만들고,
+        // (1) 전압_ 포트 개수(유니크) (2) 데이터 행 수(!ref) (3) 헤더 직후 수치 데이터 존재
+        // 를 점수화해서 선택한다. 또한 파싱 결과가 너무 작으면 다음 후보로 재시도한다.
         const sheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
-        let chosenSheetName = null;
-        let chosenHeaderRowIdx = -1;
-        let bestScore = -Infinity;
 
         const estimateRowCount = (ws) => {
             try {
@@ -85,41 +83,100 @@ async function handleExpDataUpload(event) {
             }
         };
 
+        const extractUniquePortsFromRow = (row) => {
+            const arr = Array.isArray(row) ? row : Object.values(row || {});
+            const ports = new Set();
+            for (const cell of arr) {
+                const s = cell != null ? String(cell).trim() : '';
+                const m = s.match(/전압_(\d+)/);
+                if (m) ports.add(parseInt(m[1], 10));
+            }
+            return ports;
+        };
+
+        const countNumericCellsAfterHeader = (rows, headerIdx, maxRowsToCheck = 5) => {
+            let count = 0;
+            for (let r = headerIdx + 1; r < Math.min(rows.length, headerIdx + 1 + maxRowsToCheck); r++) {
+                const row = rows[r];
+                const arr = Array.isArray(row) ? row : Object.values(row || {});
+                for (const v of arr) {
+                    const n = typeof v === 'number' ? v : parseFloat(String(v).trim());
+                    if (Number.isFinite(n)) count++;
+                }
+            }
+            return count;
+        };
+
+        const candidates = [];
         for (const name of sheetNames) {
             const ws = workbook.Sheets ? workbook.Sheets[name] : null;
             if (!ws) continue;
 
-            // 상단 일부만 읽어서 헤더 여부 확인 (전체 로드는 마지막에 한 번만)
             let rowsPreview;
             try {
-                rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 200 });
+                // range: 0..400행 정도만 미리보기
+                rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 400 });
             } catch (e) {
                 continue;
             }
             const headerRowIdx = findHeaderRowIndex(rowsPreview);
             if (headerRowIdx < 0) continue;
 
+            const ports = extractUniquePortsFromRow(rowsPreview[headerRowIdx]);
+            const uniquePortCount = ports.size;
             const rowCount = estimateRowCount(ws);
-            // 점수: 행 수가 절대적으로 큰 시트를 우선 (실데이터는 보통 수십만~백만 행)
-            const score = rowCount;
-            if (score > bestScore) {
-                bestScore = score;
-                chosenSheetName = name;
-                chosenHeaderRowIdx = headerRowIdx;
-            }
+            const numericCells = countNumericCellsAfterHeader(rowsPreview, headerRowIdx, 5);
+
+            // 점수: 포트 개수 우선(요약시트는 보통 1~2개), 그 다음 행수, 그 다음 수치셀
+            const score = uniquePortCount * 1e9 + rowCount * 1e3 + numericCells;
+            candidates.push({ name, headerRowIdx, uniquePortCount, rowCount, numericCells, score });
         }
 
-        // 선택된 시트의 전체 rawRows 로드
+        candidates.sort((a, b) => b.score - a.score);
+        console.log('데이터 시트 후보(상위 5):', candidates.slice(0, 5));
+
         let rawRows = null;
-        if (chosenSheetName) {
-            const ws = workbook.Sheets[chosenSheetName];
-            rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        let chosenSheetName = null;
+        let chosenHeaderRowIdx = -1;
+        let lastParseError = null;
+
+        // 후보 시트들에 대해: rawRows 로드 → 헤더 정렬 → parseExpData 시도
+        // 파싱 결과가 너무 작으면 다음 후보로 재시도
+        for (const cand of candidates) {
+            try {
+                const ws = workbook.Sheets[cand.name];
+                const rowsAll = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                const headerRowIndex = cand.headerRowIdx >= 0 ? cand.headerRowIdx : findHeaderRowIndex(rowsAll);
+                if (headerRowIndex < 0) continue;
+                const jsonDataTry = [rowsAll[headerRowIndex]].concat(rowsAll.slice(headerRowIndex + 1));
+                const parsedTry = parseExpData(jsonDataTry, numChannels);
+                // 너무 작은 파싱 결과는 요약/설정 시트 오검출로 간주
+                if ((parsedTry?.numSamples ?? 0) < 1000 || (parsedTry?.numChannels ?? 0) < 2) {
+                    console.warn('⚠️ 후보 시트 파싱 결과가 너무 작아 스킵:', {
+                        sheet: cand.name,
+                        numSamples: parsedTry?.numSamples,
+                        numChannels: parsedTry?.numChannels
+                    });
+                    continue;
+                }
+                // 성공
+                chosenSheetName = cand.name;
+                chosenHeaderRowIdx = headerRowIndex;
+                rawRows = rowsAll;
+                // parseExpData 결과를 바로 사용하면 중복 파싱을 피할 수 있음
+                uploadedExpData = parsedTry;
+                break;
+            } catch (e) {
+                lastParseError = e;
+                continue;
+            }
         }
 
         if (!rawRows) {
             const names = sheetNames.join(', ');
             const keys = Object.keys(workbook.Sheets || {}).join(', ');
-            throw new Error('데이터 시트를 찾을 수 없습니다. (전압_0 헤더 포함 시트 없음) 시트 목록: [' + names + '], Sheets 키: [' + keys + ']');
+            const extra = lastParseError ? (' 마지막 파싱 오류: ' + lastParseError.message) : '';
+            throw new Error('데이터 시트를 찾을 수 없습니다. (전압_0 헤더 포함 시트 없음/파싱 실패) 시트 목록: [' + names + '], Sheets 키: [' + keys + ']' + extra);
         }
 
         console.log('✅ 데이터 시트 선택:', chosenSheetName);
@@ -133,10 +190,11 @@ async function handleExpDataUpload(event) {
             throw new Error('헤더 행을 찾을 수 없습니다. 시트에 "전압_0", "전압_1" 등이 포함된 행이 있어야 합니다. 첫 행 샘플: ' + JSON.stringify((rawRows[0] || []).slice(0, 5)));
         }
         
-        const jsonData = [rawRows[headerRowIndex]].concat(rawRows.slice(headerRowIndex + 1));
-        
-        // 데이터 파싱
-        uploadedExpData = parseExpData(jsonData, numChannels);
+        // uploadedExpData가 이미 후보 검증 단계에서 채워졌으면 그대로 사용, 아니면 여기서 파싱
+        if (!uploadedExpData) {
+            const jsonData = [rawRows[headerRowIndex]].concat(rawRows.slice(headerRowIndex + 1));
+            uploadedExpData = parseExpData(jsonData, numChannels);
+        }
         
         document.getElementById('exp-data-status').textContent = 
             `✅ ${file.name} (${uploadedExpData.numChannels}채널, ${uploadedExpData.numSamples}샘플)`;
