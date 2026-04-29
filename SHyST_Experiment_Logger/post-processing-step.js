@@ -300,7 +300,7 @@ async function processDataStep2() {
         
         console.log('시험 시간:', {testStartMs, testEndMs, testTimeMs});
         
-        // Step 5: Driven 압력 상승 감지
+        // Step 5: Driven 압력 상승 감지 (또는 수동 입력 모드)
         const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
         const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
         const detectModelFront = document.getElementById('detect-model-front').checked;
@@ -314,23 +314,40 @@ async function processDataStep2() {
         // 상승시점 감지는 슬라이스 시작 기준(인덱스 0)으로 탐색 시작
         const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * FPS));
         
+        const manualMode = document.getElementById('manual-rise-input-mode')?.checked === true;
+        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+        const toIndexFromMs = (ms) => {
+            if (!Number.isFinite(ms)) return null;
+            const idx = Math.floor(((ms - sliceStartMs) / 1000) * FPS);
+            const maxIdx = Math.max(0, (filteredData?.numSamples ?? 0) - 1);
+            if (!Number.isFinite(idx)) return null;
+            return Math.max(0, Math.min(maxIdx, idx));
+        };
+
         // 압력 임계값 가져오기
         const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider').value);
         
-        if (driven7Channel !== null) {
-            const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
-            driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, {
-                startIndex: riseSearchStartIdx,
-                pressureThreshold: pressureThreshold
-            }) : null;
-        }
-        
-        if (driven8Channel !== null) {
-            const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
-            driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, {
-                startIndex: riseSearchStartIdx,
-                pressureThreshold: pressureThreshold
-            }) : null;
+        if (manualMode) {
+            const d7ms = parseFloat(document.getElementById('manual-d7-ms')?.value);
+            const d8ms = parseFloat(document.getElementById('manual-d8-ms')?.value);
+            driven7Index = toIndexFromMs(d7ms);
+            driven8Index = toIndexFromMs(d8ms);
+        } else {
+            if (driven7Channel !== null) {
+                const driven7Slice = filteredData.channels[`ch${driven7Channel}`];
+                driven7Index = driven7Slice ? findPressureRise(driven7Slice, FPS, {
+                    startIndex: riseSearchStartIdx,
+                    pressureThreshold: pressureThreshold
+                }) : null;
+            }
+            
+            if (driven8Channel !== null) {
+                const driven8Slice = filteredData.channels[`ch${driven8Channel}`];
+                driven8Index = driven8Slice ? findPressureRise(driven8Slice, FPS, {
+                    startIndex: riseSearchStartIdx,
+                    pressureThreshold: pressureThreshold
+                }) : null;
+            }
         }
         
         if (modelFrontChannel !== null) {
@@ -912,10 +929,33 @@ function computeRiseIndices() {
     if (!step1Results.filteredData || !uploadedDAQConnection) {
         return { driven7Index: null, driven8Index: null };
     }
+
+    const manualMode = document.getElementById('manual-rise-input-mode')?.checked === true;
+    const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+    const fps = step1Results.FPS;
+
+    const toIndexFromMs = (ms) => {
+        if (!Number.isFinite(ms)) return null;
+        const idx = Math.floor(((ms - sliceStartMs) / 1000) * fps);
+        const maxIdx = Math.max(0, (step1Results.filteredData?.numSamples ?? 0) - 1);
+        if (!Number.isFinite(idx)) return null;
+        return Math.max(0, Math.min(maxIdx, idx));
+    };
+
+    // 수동 입력 모드면 임계값 탐지(findPressureRise) 대신 직접 인덱스를 사용
+    if (manualMode) {
+        const d7ms = parseFloat(document.getElementById('manual-d7-ms')?.value);
+        const d8ms = parseFloat(document.getElementById('manual-d8-ms')?.value);
+        return {
+            driven7Index: toIndexFromMs(d7ms),
+            driven8Index: toIndexFromMs(d8ms)
+        };
+    }
+
     const pressureThreshold = parseFloat(document.getElementById('pressure-threshold-slider')?.value) || 0.1;
     const riseSearchStartMs = 2;
     // 슬라이더 반응성 유지를 위해 슬라이스 시작 기준으로 탐색
-    const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * step1Results.FPS));
+    const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * fps));
     const driven7Channel = findChannelByDescription(uploadedDAQConnection, 'driven7');
     const driven8Channel = findChannelByDescription(uploadedDAQConnection, 'driven8');
     
