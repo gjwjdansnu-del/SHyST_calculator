@@ -188,8 +188,8 @@ async function handleExpDataUpload(event) {
                 const jsonDataTry = [rowsAll[headerRowIndex]].concat(rowsAll.slice(headerRowIndex + 1));
                 const parsedTry = parseExpData(jsonDataTry, numChannels);
                 // 너무 작은 파싱 결과는 요약/설정 시트 오검출로 간주
-                // (실험 길이가 짧을 수도 있으니 numSamples 임계값은 완화)
-                if ((parsedTry?.numSamples ?? 0) < 100 || (parsedTry?.numChannels ?? 0) < 2) {
+                // (사용자가 "쉽게 만들려고" 데이터를 많이 잘라내면 numSamples가 매우 작을 수 있음)
+                if ((parsedTry?.numSamples ?? 0) < 1 || (parsedTry?.numChannels ?? 0) < 1) {
                     console.warn('⚠️ 후보 시트 파싱 결과가 너무 작아 스킵:', {
                         sheet: cand.name,
                         numSamples: parsedTry?.numSamples,
@@ -360,34 +360,40 @@ function parseExpData(jsonData, expectedNumChannels) {
     
     // 채널별로 데이터 분리
     // 중요: 포트 번호를 키로 사용 (연속적이지 않아도 됨)
+    // 또한 헤더에 동일 포트가 중복으로 나타나는 경우(예: 전압_0이 2개 컬럼에 반복) 첫 컬럼만 사용
     const channels = {};
-    const columnToPort = {}; // 컬럼 인덱스 -> 포트 번호 매핑
-    const portToColumn = {}; // 포트 번호 -> 컬럼 인덱스 매핑
-    
+    const columnToPort = {}; // 컬럼 인덱스 -> 포트 번호 매핑 (중복 컬럼은 첫 등장만 기록)
+    const portToColumn = {}; // 포트 번호 -> 컬럼 인덱스 매핑 (첫 등장만)
+    const seenPorts = new Set();
+
     for (let colIdx = 0; colIdx < headers.length; colIdx++) {
         const portNum = portNumbers[colIdx];
-        
-        if (portNum !== null) {
-            const channelName = `ch${portNum}`;
-            
-            channels[channelName] = validRows.map(row => {
-                const value = row[colIdx];
-                // 숫자 변환 시도
-                if (typeof value === 'number') return value;
-                if (typeof value === 'string') {
-                    const parsed = parseFloat(value);
-                    return isNaN(parsed) ? 0 : parsed;
-                }
-                return 0;
-            });
-            
-            columnToPort[colIdx] = portNum;
-            portToColumn[portNum] = colIdx;
-            
-            // 샘플 데이터 확인
-            const sampleData = channels[channelName].slice(0, 3);
-            console.log(`포트 ${portNum} (컬럼 ${colIdx}): ${channels[channelName].length}샘플, 샘플: [${sampleData.map(v => v.toFixed(6)).join(', ')}]`);
+
+        if (portNum === null) continue;
+        if (seenPorts.has(portNum)) {
+            // 중복 포트 컬럼은 무시 (첫 컬럼이 이미 채널을 만들었음)
+            continue;
         }
+        seenPorts.add(portNum);
+
+        const channelName = `ch${portNum}`;
+        channels[channelName] = validRows.map(row => {
+            const value = row[colIdx];
+            // 숫자 변환 시도
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                const parsed = parseFloat(value);
+                return isNaN(parsed) ? 0 : parsed;
+            }
+            return 0;
+        });
+
+        columnToPort[colIdx] = portNum;
+        portToColumn[portNum] = colIdx;
+
+        // 샘플 데이터 확인
+        const sampleData = channels[channelName].slice(0, 3);
+        console.log(`포트 ${portNum} (컬럼 ${colIdx}): ${channels[channelName].length}샘플, 샘플: [${sampleData.map(v => v.toFixed(6)).join(', ')}]`);
     }
     
     const actualNumChannels = Object.keys(channels).length;
