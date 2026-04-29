@@ -139,15 +139,16 @@ async function handleExpDataUpload(event) {
                 // 주의: SheetJS에서 range에 숫자를 주면 "해당 행부터 시작"으로 해석될 수 있으므로
                 // !ref 기반으로 명시적 범위를 만들어 사용한다.
                 const fullRange = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null;
+                const PREVIEW_MAX_ROW = 5000; // 헤더가 상단에 없을 수 있어 상한을 넉넉히
                 const previewRange = fullRange
                     ? {
                         s: { r: 0, c: fullRange.s.c ?? 0 },
                         e: {
-                            r: Math.min(fullRange.e.r ?? 0, 400),
+                        r: Math.min(fullRange.e.r ?? 0, PREVIEW_MAX_ROW),
                             c: fullRange.e.c ?? 0
                         }
                     }
-                    : { s: { r: 0, c: 0 }, e: { r: 400, c: 200 } };
+                    : { s: { r: 0, c: 0 }, e: { r: PREVIEW_MAX_ROW, c: 200 } };
                 rowsPreview = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: previewRange });
             } catch (e) {
                 continue;
@@ -184,7 +185,8 @@ async function handleExpDataUpload(event) {
                 const jsonDataTry = [rowsAll[headerRowIndex]].concat(rowsAll.slice(headerRowIndex + 1));
                 const parsedTry = parseExpData(jsonDataTry, numChannels);
                 // 너무 작은 파싱 결과는 요약/설정 시트 오검출로 간주
-                if ((parsedTry?.numSamples ?? 0) < 1000 || (parsedTry?.numChannels ?? 0) < 2) {
+                // (실험 길이가 짧을 수도 있으니 numSamples 임계값은 완화)
+                if ((parsedTry?.numSamples ?? 0) < 100 || (parsedTry?.numChannels ?? 0) < 2) {
                     console.warn('⚠️ 후보 시트 파싱 결과가 너무 작아 스킵:', {
                         sheet: cand.name,
                         numSamples: parsedTry?.numSamples,
