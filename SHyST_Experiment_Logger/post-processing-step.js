@@ -1163,3 +1163,8 @@ function drawRmsRatioGraph(filteredData, daqConnection, testTimeResult) {
     ctx.textAlign = 'center';
     ctx.fillText('시험 길이별 RMS/Mean 그래프 (Driven8)', canvas.width / 2, 20);
 }
+
+// 버튼 inline onclick에서 전역 함수 참조를 안전하게 보장
+// (일부 빌드/배포/캐시 상황에서 전역 노출이 끊기는 것을 방지)
+window.processDataStep1 = processDataStep1;
+window.processDataStep2 = processDataStep2;
