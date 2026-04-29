@@ -104,12 +104,15 @@ async function handleExpDataUpload(event) {
             }
         };
 
+        // 엑셀 헤더가 "전압_0" 또는 "전압 0" 같은 형태로 조금씩 달라져도 잡기 위한 정규식
+        const VOLT_RE = /전압[\s_]*(\d+)/;
+
         const extractUniquePortsFromRow = (row) => {
             const arr = Array.isArray(row) ? row : Object.values(row || {});
             const ports = new Set();
             for (const cell of arr) {
                 const s = cell != null ? String(cell).trim() : '';
-                const m = s.match(/전압_(\d+)/);
+                const m = s.match(VOLT_RE);
                 if (m) ports.add(parseInt(m[1], 10));
             }
             return ports;
@@ -294,7 +297,7 @@ async function handleDAQConnectionUpload(event) {
 /** 시트에서 '전압_0', '전압_1' 등이 포함된 첫 행 인덱스 반환. 없으면 -1 */
 function findHeaderRowIndex(rawRows) {
     if (!rawRows || !Array.isArray(rawRows)) return -1;
-    const re = /전압_\d+/;
+    const re = /전압[\s_]*(\d+)/;
     for (let i = 0; i < rawRows.length; i++) {
         const row = rawRows[i];
         if (!row) continue;
@@ -331,7 +334,7 @@ function parseExpData(jsonData, expectedNumChannels) {
     const headerCells = Array.isArray(headers) ? headers : Object.values(headers);
     const portNumbers = headerCells.map(function (cell) {
         const s = cell != null ? String(cell).trim() : '';
-        const match = s.match(/전압_(\d+)/);
+        const match = s.match(/전압[\s_]*(\d+)/);
         return match ? parseInt(match[1], 10) : null;
     });
     
