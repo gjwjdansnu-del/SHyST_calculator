@@ -315,10 +315,10 @@ async function processDataStep2() {
         const riseSearchStartIdx = Math.max(0, Math.floor((riseSearchStartMs / 1000) * FPS));
         
         const manualMode = document.getElementById('manual-rise-input-mode')?.checked === true;
-        const sliceStartMs = step1Results.slicedData?.timeRange?.start ?? -1;
+        const sliceStartMsActual = step1Results.slicedData?.timeRange?.start ?? sliceStartMs;
         const toIndexFromMs = (ms) => {
             if (!Number.isFinite(ms)) return null;
-            const idx = Math.floor(((ms - sliceStartMs) / 1000) * FPS);
+            const idx = Math.floor(((ms - sliceStartMsActual) / 1000) * FPS);
             const maxIdx = Math.max(0, (filteredData?.numSamples ?? 0) - 1);
             if (!Number.isFinite(idx)) return null;
             return Math.max(0, Math.min(maxIdx, idx));
@@ -360,8 +360,8 @@ async function processDataStep2() {
         // Step 6: 시험시간 (수동 입력값 사용)
         updateProgress(50, '2/3 시험시간 설정 중...');
         
-        const startIndex = Math.max(0, Math.floor((testStartMs - sliceStartMs) / 1000 * FPS));
-        const endIndex = Math.max(startIndex, Math.floor((testEndMs - sliceStartMs) / 1000 * FPS));
+        const startIndex = Math.max(0, Math.floor((testStartMs - sliceStartMsActual) / 1000 * FPS));
+        const endIndex = Math.max(startIndex, Math.floor((testEndMs - sliceStartMsActual) / 1000 * FPS));
         
         const testTimeResult = {
             startIndex: startIndex,
@@ -379,7 +379,7 @@ async function processDataStep2() {
             driven7Index,
             driven8Index,
             modelFrontIndex,
-            timeOffsetStartMs: sliceStartMs,
+            timeOffsetStartMs: sliceStartMsActual,
             indicesOrigin: 'slice',
             testTimeStartMs: testStartMs,
             t1FromBefore,
