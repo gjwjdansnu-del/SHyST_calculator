@@ -80,15 +80,17 @@ async function processDataStep1() {
         const progressDiv = document.getElementById('processing-progress');
         progressDiv.innerHTML = '<div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><p id="progress-text">1단계 처리 시작...</p>';
         
-        // 사용자 입력 옵션
-        const driverThresholdCoeff = parseFloat(document.getElementById('driver-threshold-coeff').value) || 3;
-        const driverPressureMissingMode = document.getElementById('driver-pressure-missing-mode')?.checked === true;
+        // 슬라이싱 기준 모드
+        const sliceMode = (typeof getSliceMode === 'function') ? getSliceMode() : 'driver_drop';
+        const driverThresholdCoeff = parseFloat(document.getElementById('driver-threshold-coeff')?.value) || 3;
+        // 하위 호환: driverPressureMissingMode = driven7_auto 또는 manual
+        const driverPressureMissingMode = (sliceMode === 'driven7_auto' || sliceMode === 'manual');
         const driven7NoiseWindowMs = parseFloat(document.getElementById('driven7-noise-window-ms')?.value) || 1.0;
         const driven7RiseStdMult = parseFloat(document.getElementById('driven7-rise-std-mult')?.value) || 4.0;
-        
+
         console.log('=== 1단계 처리 시작 ===');
+        console.log('슬라이싱 모드:', sliceMode);
         console.log('Driver 임계값 계수:', driverThresholdCoeff);
-        console.log('Driver 압력 미측정 모드:', driverPressureMissingMode);
         console.log('Driven7 노이즈 구간(ms):', driven7NoiseWindowMs, 'N:', driven7RiseStdMult);
         
         // 실험 조건
@@ -107,7 +109,34 @@ async function processDataStep1() {
         let driverIndex = null;
         let driven7TriggerStats = null;
         
-        if (!driverPressureMissingMode) {
+        if (sliceMode === 'manual') {
+            // 직접 입력 모드: D7↑ 절대위치(ms)를 기준으로 슬라이싱
+            updateProgress(20, '1/4 직접 입력 모드: 기준점 설정 중...');
+            const d7AbsMs = parseFloat(document.getElementById('manual-d7-abs-ms')?.value);
+            if (!Number.isFinite(d7AbsMs) || d7AbsMs < 0) {
+                throw new Error('직접 입력 모드: D7↑ 절대위치(ms)를 올바르게 입력해주세요.');
+            }
+            referenceIndex = Math.floor((d7AbsMs / 1000) * FPS);
+            if (referenceIndex >= uploadedExpData.numSamples) {
+                throw new Error(`직접 입력 모드: D7↑ 절대위치(${d7AbsMs}ms)가 데이터 길이를 초과합니다.`);
+            }
+            referenceMode = 'manual';
+            console.log('✅ 직접 입력 기준점:', referenceIndex, '(', d7AbsMs, 'ms)');
+            // D7/D8 수동 보정 섹션 자동 활성화
+            const overrideSec = document.getElementById('manual-rise-override-section');
+            if (overrideSec) overrideSec.style.display = '';
+            const manualCb = document.getElementById('manual-rise-input-mode');
+            if (manualCb) manualCb.checked = true;
+            // D7/D8 ms를 슬라이스 기준(D7↑=0ms 기준) 으로 세팅
+            const d8AbsMs = parseFloat(document.getElementById('manual-d8-abs-ms')?.value);
+            const slicePreMs = 5; // manual 모드에서는 -5ms 기준
+            const d7RelMs = d7AbsMs - (d7AbsMs - slicePreMs); // = slicePreMs (항상 5ms 지점)
+            const d8RelMs = Number.isFinite(d8AbsMs) ? (d8AbsMs - (d7AbsMs - slicePreMs)) : slicePreMs;
+            const d7MsEl = document.getElementById('manual-d7-ms');
+            const d8MsEl = document.getElementById('manual-d8-ms');
+            if (d7MsEl) d7MsEl.value = slicePreMs.toFixed(1);
+            if (d8MsEl) d8MsEl.value = Number.isFinite(d8RelMs) ? d8RelMs.toFixed(1) : slicePreMs.toFixed(1);
+        } else if (sliceMode !== 'driven7_auto') {
             updateProgress(20, '1/4 Driver 압력 강하 감지 중...');
             const driverChannel = findDriverChannel(uploadedDAQConnection);
             if (driverChannel === null) {

@@ -16,7 +16,7 @@
     <div class="app-container">
         <!-- 헤더 -->
                 <header class="app-header">
-                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.73</span></h1>
+                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.74</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -206,43 +206,100 @@
 
                 <div class="form-section">
                     <h3>2. 처리 옵션</h3>
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>Driver 감지 임계값 계수</label>
-                            <input type="number" id="driver-threshold-coeff" value="3" step="0.1" min="1" max="10"
-                                   title="기울기 임계값 = 계수 × max(abs(max_gradient), abs(min_gradient))">
-                            <small style="color: #666;">기본값: 3 (클수록 큰 변화만 감지)</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="detect-model-front" style="width: auto; margin-right: 5px;">
-                                Model Front 압력 상승 감지
-                            </label>
-                            <small style="color: #666;">필요한 경우에만 체크</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="driver-pressure-missing-mode" style="width: auto; margin-right: 5px;">
-                                Driver 압력 미측정 모드 (driven7 상승 기준)
-                            </label>
-                            <small style="color: #666;">ON: driven7 상승 시점을 기준으로 -1ms부터 슬라이싱, p4/p4_std/T4는 공란 처리</small>
-                        </div>
 
-                        <div class="form-group">
-                            <label>Driven7 노이즈 구간 [ms]</label>
-                            <input type="number" id="driven7-noise-window-ms" value="1.0" step="0.1" min="0.1" max="10">
-                            <small style="color: #666;">미측정 모드에서 초기 노이즈 평균/표준편차 계산 구간</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Driven7 상승 기준 N (mean + N×std)</label>
-                            <input type="number" id="driven7-rise-std-mult" value="4" step="0.1" min="1" max="20">
-                            <small style="color: #666;">미측정 모드 트리거 감지 임계 배수</small>
+                    <!-- 슬라이싱 기준 모드 선택 -->
+                    <div style="background:#f0f4ff; border:1px solid #b0c4ff; border-radius:8px; padding:16px; margin-bottom:16px;">
+                        <strong style="font-size:15px;">📍 슬라이싱 기준 모드</strong>
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                                <input type="radio" name="slice-mode" id="mode-driver-drop" value="driver_drop" checked onchange="onSliceModeChange()">
+                                🟢 Driver 압력 하강 감지
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                                <input type="radio" name="slice-mode" id="mode-driven7-auto" value="driven7_auto" onchange="onSliceModeChange()">
+                                🟡 Driven7 압력 상승 자동 감지
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                                <input type="radio" name="slice-mode" id="mode-manual" value="manual" onchange="onSliceModeChange()">
+                                🔴 직접 시작점 입력
+                            </label>
                         </div>
                     </div>
-                    <p id="driven7-trigger-info" style="margin-top: 8px; font-size: 13px; color: #555;">미측정 모드 OFF</p>
+
+                    <!-- Driver 하강 모드 옵션 -->
+                    <div id="opts-driver-drop">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Driver 감지 임계값 계수</label>
+                                <input type="number" id="driver-threshold-coeff" value="3" step="0.1" min="1" max="10">
+                                <small style="color: #666;">기본값: 3 (클수록 큰 변화만 감지)</small>
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="detect-model-front" style="width:auto; margin-right:5px;"> Model Front 압력 상승 감지</label>
+                                <small style="color:#666;">필요한 경우에만 체크</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Driven7 자동 감지 모드 옵션 -->
+                    <div id="opts-driven7-auto" style="display:none;">
+                        <!-- hidden checkbox – JS에서 참조 (하위 호환) -->
+                        <input type="checkbox" id="driver-pressure-missing-mode" style="display:none;" checked>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Driven7 노이즈 구간 [ms]</label>
+                                <input type="number" id="driven7-noise-window-ms" value="1.0" step="0.1" min="0.1" max="10">
+                                <small style="color:#666;">초기 노이즈 평균/표준편차 계산 구간</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Driven7 상승 기준 N (mean + N×std)</label>
+                                <input type="number" id="driven7-rise-std-mult" value="4" step="0.1" min="1" max="20">
+                                <small style="color:#666;">감지 임계 배수</small>
+                            </div>
+                        </div>
+                        <p id="driven7-trigger-info" style="margin-top:8px; font-size:13px; color:#555;">Driven7 자동 감지 모드</p>
+                    </div>
+
+                    <!-- 직접 입력 모드 옵션 -->
+                    <div id="opts-manual" style="display:none;">
+                        <!-- hidden checkbox – JS에서 참조 (하위 호환) -->
+                        <input type="checkbox" id="driver-pressure-missing-mode2" style="display:none;" checked>
+                        <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px; margin-bottom:12px;">
+                            <small>⚠️ 직접 입력 모드: 슬라이싱 기준(D7↑ 절대위치)과 D7↑/D8↑ 상대위치를 ms로 입력합니다.<br>
+                            슬라이싱은 D7↑ 절대위치 ±(5ms/30ms) 윈도우로 수행됩니다. p4/T4는 공란 처리됩니다.</small>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>D7↑ 절대위치 [ms from data start]</label>
+                                <input type="number" id="manual-d7-abs-ms" value="100" step="0.1" min="0">
+                                <small style="color:#666;">원본 데이터에서 D7 상승 시점 (ms 단위)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>D8↑ 절대위치 [ms from data start]</label>
+                                <input type="number" id="manual-d8-abs-ms" value="100.2" step="0.1" min="0">
+                                <small style="color:#666;">원본 데이터에서 D8 상승 시점 (ms 단위)</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- D7/D8 상승시점 수동 보정 (모든 모드에서 사용 가능, 1단계 후 그래프에서도 표시) -->
+                    <div id="manual-rise-override-section" style="display:none; margin-top:12px; background:#f9f9f9; border:1px solid #ddd; border-radius:6px; padding:12px;">
+                        <strong style="font-size:13px;">✏️ D7↑/D8↑ 위치 수동 보정 (슬라이스 기준 ms)</strong>
+                        <div class="form-grid" style="margin-top:8px;">
+                            <div class="form-group" style="margin:0;">
+                                <label>D7↑ [ms]</label>
+                                <input type="number" id="manual-d7-ms" value="0.0" step="0.1" min="-5" max="30">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>D8↑ [ms]</label>
+                                <input type="number" id="manual-d8-ms" value="0.0" step="0.1" min="-5" max="30">
+                            </div>
+                        </div>
+                        <label style="margin-top:8px; display:flex; align-items:center; gap:6px; font-size:13px;">
+                            <input type="checkbox" id="manual-rise-input-mode" style="width:auto;">
+                            이 값으로 D7↑/D8↑ 고정 (자동 감지 무시)
+                        </label>
+                    </div>
                 </div>
 
                 <div class="form-section">
@@ -513,8 +570,22 @@
     <script src="app.js"></script>
     
     <script>
+        function onSliceModeChange() {
+            const mode = document.querySelector('input[name="slice-mode"]:checked')?.value || 'driver_drop';
+            document.getElementById('opts-driver-drop').style.display    = (mode === 'driver_drop')   ? '' : 'none';
+            document.getElementById('opts-driven7-auto').style.display   = (mode === 'driven7_auto')  ? '' : 'none';
+            document.getElementById('opts-manual').style.display         = (mode === 'manual')        ? '' : 'none';
+            document.getElementById('manual-rise-override-section').style.display = (mode === 'manual') ? '' : 'none';
+            // 하위 호환: driver-pressure-missing-mode 체크박스 동기화
+            const missingCb = document.getElementById('driver-pressure-missing-mode');
+            if (missingCb) missingCb.checked = (mode === 'driven7_auto' || mode === 'manual');
+        }
+        function getSliceMode() {
+            return document.querySelector('input[name="slice-mode"]:checked')?.value || 'driver_drop';
+        }
         // 페이지 로드 완료 후 디버그 정보 출력
         window.addEventListener('load', function() {
+            onSliceModeChange(); // 초기 UI 상태 설정
             console.log('=== 페이지 로드 완료 ===');
             console.log('XLSX 라이브러리:', typeof XLSX);
             console.log('handleExpDataUpload 함수:', typeof handleExpDataUpload);
