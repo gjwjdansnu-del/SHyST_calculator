@@ -54,27 +54,44 @@ async function handleExpDataUpload(event) {
         
         console.log('⏳ XLSX 파싱 시작...');
         const uint8 = new Uint8Array(arrayBuffer);
-        let workbook = XLSX.read(uint8, { type: 'array', sheets: [0, 1] });
 
-        // 일부 파일에서 SheetNames는 2개인데 Sheets가 1개만 생성되는 경우가 있어 재시도
+        // sheets:[0,1] 옵션은 일부 파일에서 sharedStrings 파싱 오류를 유발하므로 사용 안 함.
+        // 전체 파싱 후 필요 시 dense 모드로 재시도.
+        let workbook = XLSX.read(uint8, { type: 'array' });
+
+        // 시트 오브젝트가 누락된 경우 또는 2번째 시트의 문자열 셀이 전부 비어있는 경우 재시도
         const sheetNamesInitial = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
         const sheetKeysInitial = Object.keys(workbook.Sheets || {});
+
+        // 2번째 시트(데이터 시트)에 문자열 값이 제대로 로드됐는지 확인
+        const checkSheet2Readable = () => {
+            if (sheetNamesInitial.length < 2) return true;
+            const ws2 = workbook.Sheets?.[sheetNamesInitial[1]];
+            if (!ws2) return false;
+            const range = ws2['!ref'] ? XLSX.utils.decode_range(ws2['!ref']) : null;
+            if (!range) return false;
+            try {
+                const pr = { s: { r: 0, c: 0 }, e: { r: Math.min(range.e.r, 5), c: Math.min(range.e.c, 30) } };
+                const preview = XLSX.utils.sheet_to_json(ws2, { header: 1, defval: null, range: pr });
+                // 문자열 값이 최소 1개 이상 있어야 sharedStrings가 제대로 로드된 것
+                return preview.flat().some(v => typeof v === 'string' && v.trim().length > 0);
+            } catch { return false; }
+        };
+
         const missingSomeSheetObject =
-            sheetNamesInitial.length >= 2 &&
-            sheetKeysInitial.length < sheetNamesInitial.length &&
-            sheetNamesInitial.some(n => !workbook.Sheets || !workbook.Sheets[n]);
+            sheetNamesInitial.length >= 2 && (
+                sheetKeysInitial.length < sheetNamesInitial.length ||
+                sheetNamesInitial.some(n => !workbook.Sheets?.[n]) ||
+                !checkSheet2Readable()
+            );
 
         if (missingSomeSheetObject) {
-            console.warn('⚠️ 일부 시트 오브젝트 누락 감지. XLSX.read 재시도합니다.', {
+            console.warn('⚠️ 시트 오브젝트 누락 또는 sharedStrings 미해석 감지. dense 모드로 재시도합니다.', {
                 sheetNames: sheetNamesInitial,
-                sheetKeys: sheetKeysInitial
+                sheetKeys: sheetKeysInitial,
+                sheet2Readable: checkSheet2Readable()
             });
-            // 1) sheets 옵션 제거(전체 파싱) 2) dense 모드로 한 번 더 시도
-            workbook = XLSX.read(uint8, { type: 'array' });
-            const sheetKeysRetry1 = Object.keys(workbook.Sheets || {});
-            if (sheetKeysRetry1.length < (workbook.SheetNames?.length ?? 0)) {
-                workbook = XLSX.read(uint8, { type: 'array', dense: true });
-            }
+            workbook = XLSX.read(uint8, { type: 'array', dense: true });
         }
         console.log('✅ Workbook 로드 완료. 시트 수:', workbook.SheetNames.length);
         console.log('시트 이름:', workbook.SheetNames);
@@ -207,6 +224,35 @@ async function handleExpDataUpload(event) {
             } catch (e) {
                 lastParseError = e;
                 continue;
+            }
+        }
+
+        // 후보 선택 실패 시 마지막 수단: dense 모드로 재파싱 후 다시 시도
+        if (!rawRows && sheetNames.length >= 2) {
+            console.warn('⚠️ 후보 선택 실패. dense 모드로 전체 재파싱 시도...');
+            try {
+                const wbDense = XLSX.read(uint8, { type: 'array', dense: true });
+                for (const name of (wbDense.SheetNames || [])) {
+                    const ws = wbDense.Sheets?.[name];
+                    if (!ws) continue;
+                    try {
+                        const rowsAll = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                        const headerRowIndex = findHeaderRowIndex(rowsAll);
+                        if (headerRowIndex < 0) continue;
+                        const jsonDataTry = [rowsAll[headerRowIndex]].concat(rowsAll.slice(headerRowIndex + 1));
+                        const parsedTry = parseExpData(jsonDataTry, numChannels);
+                        if ((parsedTry?.numSamples ?? 0) >= 1 && (parsedTry?.numChannels ?? 0) >= 1) {
+                            console.log('✅ dense 재시도로 데이터 시트 찾음:', name);
+                            chosenSheetName = name;
+                            chosenHeaderRowIdx = headerRowIndex;
+                            rawRows = rowsAll;
+                            uploadedExpData = parsedTry;
+                            break;
+                        }
+                    } catch (e2) { /* 다음 시트 시도 */ }
+                }
+            } catch (e3) {
+                console.error('dense 재시도 실패:', e3);
             }
         }
 

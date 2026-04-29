@@ -16,7 +16,7 @@
     <div class="app-container">
         <!-- 헤더 -->
                 <header class="app-header">
-                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.74</span></h1>
+                    <h1>🚀 SHyST 실험 로거 <span style="font-size: 0.6em; color: #888; font-weight: normal;">ver 1.0.75</span></h1>
             <div class="header-actions">
                 <button onclick="showExperimentList()" class="btn-secondary">📋 실험 목록</button>
                 <button onclick="showImportDialog()" class="btn-secondary" style="background: var(--accent-green); color: white;">💾 기존 데이터 가져오기</button>
@@ -186,18 +186,18 @@
                 <div class="form-section">
                     <h3>1. 데이터 파일 업로드</h3>
                     <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                        <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
-                            <label style="display: block; margin-bottom: 10px; font-weight: bold;">실험 측정 데이터</label>
+                        <div class="upload-box" style="border: 2px dashed #3d5a8a; padding: 20px; border-radius: 8px; text-align: center; background:#161b22;">
+                            <label style="display: block; margin-bottom: 10px; font-weight: bold; color:#e6edf3;">실험 측정 데이터</label>
                             <input type="file" id="exp-data-file" accept=".xlsx,.xls" onchange="handleExpDataUpload(event)">
-                            <p id="exp-data-status" style="margin-top: 10px; font-size: 14px; color: #666;">
+                            <p id="exp-data-status" style="margin-top: 10px; font-size: 14px; color: #8b949e;">
                                 파일을 선택해주세요
                             </p>
                         </div>
                         
-                        <div class="upload-box" style="border: 2px dashed #ccc; padding: 20px; border-radius: 8px; text-align: center;">
-                            <label style="display: block; margin-bottom: 10px; font-weight: bold;">DAQ Connection</label>
+                        <div class="upload-box" style="border: 2px dashed #3d5a8a; padding: 20px; border-radius: 8px; text-align: center; background:#161b22;">
+                            <label style="display: block; margin-bottom: 10px; font-weight: bold; color:#e6edf3;">DAQ Connection</label>
                             <input type="file" id="daq-connection-file" accept=".xlsx,.xls" onchange="handleDAQConnectionUpload(event)">
-                            <p id="daq-status" style="margin-top: 10px; font-size: 14px; color: #666;">
+                            <p id="daq-status" style="margin-top: 10px; font-size: 14px; color: #8b949e;">
                                 파일을 선택해주세요
                             </p>
                         </div>
@@ -208,18 +208,18 @@
                     <h3>2. 처리 옵션</h3>
 
                     <!-- 슬라이싱 기준 모드 선택 -->
-                    <div style="background:#f0f4ff; border:1px solid #b0c4ff; border-radius:8px; padding:16px; margin-bottom:16px;">
-                        <strong style="font-size:15px;">📍 슬라이싱 기준 모드</strong>
-                        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
-                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                    <div style="background:#1e2a3a; border:1px solid #3d5a8a; border-radius:8px; padding:16px; margin-bottom:16px;">
+                        <strong style="font-size:15px; color:#7eb8f7;">📍 슬라이싱 기준 모드</strong>
+                        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:12px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#e6edf3; font-weight:500;">
                                 <input type="radio" name="slice-mode" id="mode-driver-drop" value="driver_drop" checked onchange="onSliceModeChange()">
                                 🟢 Driver 압력 하강 감지
                             </label>
-                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#e6edf3; font-weight:500;">
                                 <input type="radio" name="slice-mode" id="mode-driven7-auto" value="driven7_auto" onchange="onSliceModeChange()">
                                 🟡 Driven7 압력 상승 자동 감지
                             </label>
-                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#e6edf3; font-weight:500;">
                                 <input type="radio" name="slice-mode" id="mode-manual" value="manual" onchange="onSliceModeChange()">
                                 🔴 직접 시작점 입력
                             </label>
@@ -232,11 +232,11 @@
                             <div class="form-group">
                                 <label>Driver 감지 임계값 계수</label>
                                 <input type="number" id="driver-threshold-coeff" value="3" step="0.1" min="1" max="10">
-                                <small style="color: #666;">기본값: 3 (클수록 큰 변화만 감지)</small>
+                                <small style="color: #8b949e;">기본값: 3 (클수록 큰 변화만 감지)</small>
                             </div>
                             <div class="form-group">
                                 <label><input type="checkbox" id="detect-model-front" style="width:auto; margin-right:5px;"> Model Front 압력 상승 감지</label>
-                                <small style="color:#666;">필요한 경우에만 체크</small>
+                                <small style="color:#8b949e;">필요한 경우에만 체크</small>
                             </div>
                         </div>
                     </div>
@@ -249,42 +249,42 @@
                             <div class="form-group">
                                 <label>Driven7 노이즈 구간 [ms]</label>
                                 <input type="number" id="driven7-noise-window-ms" value="1.0" step="0.1" min="0.1" max="10">
-                                <small style="color:#666;">초기 노이즈 평균/표준편차 계산 구간</small>
+                                <small style="color:#8b949e;">초기 노이즈 평균/표준편차 계산 구간</small>
                             </div>
                             <div class="form-group">
                                 <label>Driven7 상승 기준 N (mean + N×std)</label>
                                 <input type="number" id="driven7-rise-std-mult" value="4" step="0.1" min="1" max="20">
-                                <small style="color:#666;">감지 임계 배수</small>
+                                <small style="color:#8b949e;">감지 임계 배수</small>
                             </div>
                         </div>
-                        <p id="driven7-trigger-info" style="margin-top:8px; font-size:13px; color:#555;">Driven7 자동 감지 모드</p>
+                        <p id="driven7-trigger-info" style="margin-top:8px; font-size:13px; color:#8b949e;">Driven7 자동 감지 모드</p>
                     </div>
 
                     <!-- 직접 입력 모드 옵션 -->
                     <div id="opts-manual" style="display:none;">
                         <!-- hidden checkbox – JS에서 참조 (하위 호환) -->
                         <input type="checkbox" id="driver-pressure-missing-mode2" style="display:none;" checked>
-                        <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px; margin-bottom:12px;">
-                            <small>⚠️ 직접 입력 모드: 슬라이싱 기준(D7↑ 절대위치)과 D7↑/D8↑ 상대위치를 ms로 입력합니다.<br>
+                        <div style="background:#2d2200; border:1px solid #d29922; border-radius:6px; padding:12px; margin-bottom:12px;">
+                            <small style="color:#e6c570;">⚠️ 직접 입력 모드: 슬라이싱 기준(D7↑ 절대위치)과 D7↑/D8↑ 상대위치를 ms로 입력합니다.<br>
                             슬라이싱은 D7↑ 절대위치 ±(5ms/30ms) 윈도우로 수행됩니다. p4/T4는 공란 처리됩니다.</small>
                         </div>
                         <div class="form-grid">
                             <div class="form-group">
                                 <label>D7↑ 절대위치 [ms from data start]</label>
                                 <input type="number" id="manual-d7-abs-ms" value="100" step="0.1" min="0">
-                                <small style="color:#666;">원본 데이터에서 D7 상승 시점 (ms 단위)</small>
+                                <small style="color:#8b949e;">원본 데이터에서 D7 상승 시점 (ms 단위)</small>
                             </div>
                             <div class="form-group">
                                 <label>D8↑ 절대위치 [ms from data start]</label>
                                 <input type="number" id="manual-d8-abs-ms" value="100.2" step="0.1" min="0">
-                                <small style="color:#666;">원본 데이터에서 D8 상승 시점 (ms 단위)</small>
+                                <small style="color:#8b949e;">원본 데이터에서 D8 상승 시점 (ms 단위)</small>
                             </div>
                         </div>
                     </div>
 
                     <!-- D7/D8 상승시점 수동 보정 (모든 모드에서 사용 가능, 1단계 후 그래프에서도 표시) -->
-                    <div id="manual-rise-override-section" style="display:none; margin-top:12px; background:#f9f9f9; border:1px solid #ddd; border-radius:6px; padding:12px;">
-                        <strong style="font-size:13px;">✏️ D7↑/D8↑ 위치 수동 보정 (슬라이스 기준 ms)</strong>
+                    <div id="manual-rise-override-section" style="display:none; margin-top:12px; background:#1a2030; border:1px solid #30363d; border-radius:6px; padding:12px;">
+                        <strong style="font-size:13px; color:#e6edf3;">✏️ D7↑/D8↑ 위치 수동 보정 (슬라이스 기준 ms)</strong>
                         <div class="form-grid" style="margin-top:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label>D7↑ [ms]</label>
@@ -336,7 +336,7 @@
                                     <input type="checkbox" id="manual-rise-input-mode" style="width:auto; margin-right: 6px;">
                                     D7/D8 상승시점 수동 입력 모드
                                 </label>
-                                <small style="color:#666; display:block; margin-top:4px;">
+                                <small style="color:#8b949e; display:block; margin-top:4px;">
                                     ON: 아래 값을 기준으로 D7↑/D8↑ 세로 점선 표시 및 측정값 계산
                                 </small>
                             </div>
