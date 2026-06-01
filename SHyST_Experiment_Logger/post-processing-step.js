@@ -257,9 +257,9 @@ async function processDataStep1() {
         // 그래프 그리기
         updateProgress(100, '✅ 1단계 완료! 그래프를 확인하고 시험 시작/끝점을 조정하세요.');
         
-        // 압력 임계값 슬라이더 범위 설정 (0 ~ 2*p1)
+        // 압력 임계값 슬라이더 범위 설정 (0 ~ 4*p1)
         const p1_bar = hasDrivenPressure ? p_driven : (currentExperiment?.after?.labviewLog?.p1_avg || 0.1);
-        const maxPressure = 2 * p1_bar;
+        const maxPressure = 4 * p1_bar;
         const pressureSlider = document.getElementById('pressure-threshold-slider');
         pressureSlider.max = maxPressure.toFixed(2);
         pressureSlider.value = (p1_bar * 0.5).toFixed(2); // 초기값: 0.5*p1
