@@ -418,25 +418,12 @@ async function calculateFlowConditions() {
         // State 5s: Equilibrium condition (isentropic relaxation to pe)
         console.log('Start calculation of isentropic relaxation.');
         const state5s = state5.clone();
-        let V5s = 0;
+        const V5s = 0;
         
         if (pe && Math.abs(pe - state5.p) > 1) {
-            // Isentropic expansion from state5 (stagnation) to pe
-            const p_ratio = pe / state5.p;
-            const [expanded_state, V_expanded] = expand_from_stagnation(p_ratio, state5);
-            
-            // Copy properties
-            state5s.p = expanded_state.p;
-            state5s.T = expanded_state.T;
-            state5s.rho = expanded_state.rho;
-            state5s.h = expanded_state.h;
-            state5s.e = expanded_state.e;
-            state5s.s = expanded_state.s;
-            state5s.a = expanded_state.a;
-            state5s.gam = expanded_state.gam;
-            state5s.Cp = expanded_state.Cp;
-            state5s.mu = expanded_state.mu;
-            V5s = V_expanded;
+            // ESTCN: state 5s is a quiescent nozzle-reservoir state at the
+            // measured pressure, with entropy inherited from state 5.
+            state5s.set_ps(pe, state5.s);
         }
         
         console.log('State 5s: equilibrium condition (relaxation to pe)');
@@ -463,19 +450,9 @@ async function calculateFlowConditions() {
         state7.write_state();
         console.log(`  V7: ${V7.toFixed(2)} m/s, M7: ${M7_calc.toFixed(5)}, mflux7: ${mflux7.toFixed(1)} kg/s/m²`);
         
-        // Pitot pressure calculation
-        let pitot7;
-        if (M7_calc > 1) {
-            const g = state7.gam;
-            const M = M7_calc;
-            const term1 = Math.pow((g + 1) * M * M / 2, g / (g - 1));
-            const term2 = Math.pow((2 * g * M * M - (g - 1)) / (g + 1), 1 / (1 - g));
-            pitot7 = state7.p * term1 * term2;
-        } else {
-            const g = state7.gam;
-            const M = M7_calc;
-            pitot7 = state7.p * Math.pow(1 + (g - 1) / 2 * M * M, g / (g - 1));
-        }
+        // Pitot pressure with the same variable-property gas model.
+        const state7Pitot = pitot_condition(state7, V7);
+        const pitot7 = state7Pitot.p;
         console.log(`  pitot: ${pitot7.toExponential(5)} Pa, pitot7_on_p5s: ${(pitot7 / state5s.p).toFixed(6)}`);
         
         console.log('Done with reflected shock tube calculation.');
@@ -489,9 +466,25 @@ async function calculateFlowConditions() {
         const h1_total = state1.h;  // u1 = 0
         const h2_total = state2.h + 0.5 * Vg * Vg;
         const h5_total = state5.h;  // u5 = 0 (stagnation)
-        const h5s_total = state5s.h + 0.5 * V5s * V5s;  // Should equal h5_total
+        const h5s_total = state5s.h;
         const h6_total = state6.h + 0.5 * V6 * V6;
         const h7_total = state7.h + 0.5 * V7 * V7;
+
+        const diagnostics = {
+            state1: thermodynamicResiduals(state1),
+            state2: thermodynamicResiduals(state2),
+            state5: thermodynamicResiduals(state5),
+            state5s: thermodynamicResiduals(state5s),
+            state6: thermodynamicResiduals(state6, state5s.h, V6, state5s.s),
+            state7: thermodynamicResiduals(state7, state5s.h, V7, state5s.s)
+        };
+        diagnostics.maxEnthalpyIdentityError = Math.max(
+            ...Object.values(diagnostics)
+                .filter(value => value && typeof value === 'object' && 'enthalpyIdentity' in value)
+                .map(value => Math.abs(value.enthalpyIdentity))
+        );
+        diagnostics.nozzleTotalEnthalpyRelativeError = diagnostics.state7.totalEnthalpyRelativeError;
+        diagnostics.nozzleEntropyRelativeError = diagnostics.state7.entropyRelativeError;
         
         // Unit Reynolds number calculations
         const Re_unit1 = 0;  // u1 = 0
@@ -507,21 +500,24 @@ async function calculateFlowConditions() {
                 p: state1.p, t: state1.T, rho: state1.rho, u: 0,
                 h: state1.h, h_total: h1_total / 1e6, R: state1.R,
                 gamma: state1.gam, cp: state1.Cp, a: state1.a, s: state1.s,
-                V: 0, M: 0, mu: state1.mu, Re_unit: Re_unit1 / 1e6
+                V: 0, M: 0, mu: state1.mu, Re_unit: Re_unit1 / 1e6,
+                viscosityModel: state1.viscosityModel
             },
             stage2: {
                 p: state2.p, t: state2.T, rho: state2.rho, u: Vg,
                 h: state2.h, h_total: h2_total / 1e6, R: state2.R,
                 gamma: state2.gam, cp: state2.Cp, a: state2.a, s: state2.s,
                 V: Vg, M: Vg / state2.a, V2: V2, Vg: Vg,
-                mu: state2.mu, Re_unit: Re_unit2 / 1e6
+                mu: state2.mu, Re_unit: Re_unit2 / 1e6,
+                viscosityModel: state2.viscosityModel
             },
             stage5: {
                 p: state5.p, t: state5.T, rho: state5.rho, u: 0,
                 h: state5.h, h_total: h5_total / 1e6, R: state5.R,
                 gamma: state5.gam, cp: state5.Cp, a: state5.a, s: state5.s,
                 V: 0, M: 0, Vr: Vr,
-                mu: state5.mu, Re_unit: Re_unit5 / 1e6
+                mu: state5.mu, Re_unit: Re_unit5 / 1e6,
+                viscosityModel: state5.viscosityModel
             },
             stage5s: {
                 p: state5s.p, t: state5s.T, rho: state5s.rho, u: V5s,
@@ -529,6 +525,7 @@ async function calculateFlowConditions() {
                 gamma: state5s.gam, cp: state5s.Cp, a: state5s.a, s: state5s.s,
                 V: V5s, M: V5s / state5s.a,
                 mu: state5s.mu, Re_unit: Re_unit5s / 1e6,
+                viscosityModel: state5s.viscosityModel,
                 H5s_H1: H5s_H1, H5s_H1_MJ: H5s_H1 / 1e6
             },
             stage6: {
@@ -536,7 +533,8 @@ async function calculateFlowConditions() {
                 h: state6.h, h_total: h6_total / 1e6, R: state6.R,
                 gamma: state6.gam, cp: state6.Cp, a: state6.a, s: state6.s,
                 V: V6, M: M6, mflux: mflux6,
-                mu: state6.mu, Re_unit: Re_unit6 / 1e6
+                mu: state6.mu, Re_unit: Re_unit6 / 1e6,
+                viscosityModel: state6.viscosityModel
             },
             stage7: {
                 p: state7.p, t: state7.T, rho: state7.rho, u: V7,
@@ -544,6 +542,7 @@ async function calculateFlowConditions() {
                 gamma: state7.gam, cp: state7.Cp, a: state7.a, s: state7.s,
                 V: V7, M: M7_calc, mflux: mflux7,
                 mu: state7.mu, Re_unit: Re_unit7 / 1e6,
+                viscosityModel: state7.viscosityModel,
                 pitot: pitot7, pitot_on_p5s: pitot7 / state5s.p
             }
         };
@@ -552,6 +551,7 @@ async function calculateFlowConditions() {
         currentExperiment.calculation.enthalpy_MJ = H5s_H1 / 1e6;
         currentExperiment.calculation.shock_speed = Vs;
         currentExperiment.calculation.reflected_shock_speed = Vr;
+        currentExperiment.calculation.diagnostics = diagnostics;
         
         currentExperiment.status = 'completed';
         
@@ -649,6 +649,10 @@ function createStageCard(title, state) {
     
     if (state.Re_unit !== undefined && state.Re_unit !== 0) {
         properties.push({ label: 'Re/m [×10⁶/m]', value: state.Re_unit.toFixed(3) });
+    }
+
+    if (state.viscosityModel) {
+        properties.push({ label: '점도 모델', value: state.viscosityModel });
     }
     
     // 특수 값들

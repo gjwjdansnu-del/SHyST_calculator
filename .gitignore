@@ -44,6 +44,8 @@ node_modules/
 
 # Python scripts (개발용)
 *.py
+!SHyST_Experiment_Logger/import-excel-data.py
+!SHyST_Experiment_Logger/generate-coolprop-viscosity-table.py
 
 # 개발/테스트용 폴더 및 파일
 post processing code/

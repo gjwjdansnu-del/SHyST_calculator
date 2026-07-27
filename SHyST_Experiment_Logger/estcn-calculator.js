@@ -4,8 +4,9 @@
 // Based on: ESTCj (Equilibrium Shock Tube Conditions)
 // Reference: Jacobs et al., Mechanical Engineering Report 2011/02
 //
-// This implementation follows the exact same logic as ESTCN/ESTCj
-// using NASA polynomial thermodynamics instead of CEA2.
+// Flow solvers follow ESTCN/ESTCj conservation and iteration logic.
+// Thermodynamics use a fixed-composition NASA-polynomial model rather than
+// ESTCN's Eilmer/CEA equilibrium-gas backend.
 // ============================================
 
 // ============================================
@@ -25,23 +26,45 @@ const ESTCN_GAS_MW = {
     h2: 2.0160
 };
 
-// Enthalpy offset to avoid negative values
-// Based on ESTCN State 1 (300K, 1.2bar): h_ESTCN = 302227 J/kg, h_NASA ≈ 2057 J/kg
-// Offset = 300000 J/kg (rounded for simplicity)
+// Enthalpy datum used by the ESTCN reference output.
+// A constant datum does not affect shock/expansion energy differences, but it
+// must be applied continuously and internal energy must use the same datum.
 const ESTCN_H_OFFSET = 300000; // J/kg
+const ESTCN_T_MIN_NASA = 200;  // Lower validity limit of the NASA polynomials [K]
+
+// ESTCN delegates transport properties to its selected gas model. For the
+// browser build, use a compact CoolProp-generated table in its validated
+// single-phase gas range, with Sutherland's law as the explicit fallback.
+let ESTCN_COOLPROP_TABLE = typeof globalThis !== 'undefined'
+    ? globalThis.SHYST_COOLPROP_VISCOSITY_TABLE
+    : null;
+if (!ESTCN_COOLPROP_TABLE && typeof require === 'function') {
+    try {
+        ESTCN_COOLPROP_TABLE = require('./coolprop-viscosity-table.js');
+    } catch (_) {
+        // The generated table is optional for non-browser embedding.
+    }
+}
 
 // NASA 7-coefficient polynomial coefficients
 // cp/R = a1 + a2*T + a3*T^2 + a4*T^3 + a5*T^4
 // h/RT = a1 + a2*T/2 + a3*T^2/3 + a4*T^3/4 + a5*T^4/5 + a6/T
 // s/R = a1*ln(T) + a2*T + a3*T^2/2 + a4*T^3/3 + a5*T^4/4 + a7
 const ESTCN_NASA_COEFFS = {
-    // Air (using N2 as primary component)
-    air: {
+    n2: {
         low: {  // 200-1000K
             a: [3.298677e0, 1.408240e-3, -3.963222e-6, 5.641515e-9, -2.444855e-12, -1.020900e3, 3.950372e0]
         },
         high: { // 1000-6000K
             a: [2.926640e0, 1.487977e-3, -5.684761e-7, 1.009704e-10, -6.753351e-15, -9.227977e2, 5.980528e0]
+        }
+    },
+    o2: {
+        low: {
+            a: [3.78245636e0, -2.99673416e-3, 9.84730201e-6, -9.68129509e-9, 3.24372837e-12, -1.06394356e3, 3.65767573e0]
+        },
+        high: {
+            a: [3.28253784e0, 1.48308754e-3, -7.57966669e-7, 2.09470555e-10, -2.16717794e-14, -1.08845772e3, 5.45323129e0]
         }
     },
     co2: {
@@ -59,13 +82,31 @@ const ESTCN_NASA_COEFFS = {
     ar: {
         low: { a: [2.5, 0, 0, 0, 0, -7.453750e2, 4.379674e0] },
         high: { a: [2.5, 0, 0, 0, 0, -7.453750e2, 4.379674e0] }
+    },
+    h2: {
+        low: { a: [2.34433112e0, 7.98052075e-3, -1.94781510e-5, 2.01572094e-8, -7.37611761e-12, -9.17935173e2, 6.83010238e-1] },
+        high: { a: [3.33727920e0, -4.94024731e-5, 4.99456778e-7, -1.79566394e-10, 2.00255376e-14, -9.50158922e2, -3.20502331e0] }
     }
 };
+
+// Dry-air mole fractions. NASA dimensionless polynomials mix linearly in mole
+// fraction; the declared dry-air molecular weight is retained for R.
+const ESTCN_AIR_COMPONENTS = [
+    { gas: 'n2', moleFraction: 0.78084 },
+    { gas: 'o2', moleFraction: 0.20946 },
+    { gas: 'ar', moleFraction: 0.00934 },
+    { gas: 'co2', moleFraction: 0.00036 }
+];
 
 // Sutherland's law constants for viscosity
 const ESTCN_SUTHERLAND = {
     air: { mu_ref: 1.716e-5, T_ref: 273.15, S: 110.4 },
-    co2: { mu_ref: 1.370e-5, T_ref: 273.15, S: 222.0 }
+    n2: { mu_ref: 1.663e-5, T_ref: 273.15, S: 107.0 },
+    o2: { mu_ref: 1.919e-5, T_ref: 273.15, S: 139.0 },
+    co2: { mu_ref: 1.370e-5, T_ref: 273.15, S: 222.0 },
+    he: { mu_ref: 1.864e-5, T_ref: 273.15, S: 79.4 },
+    ar: { mu_ref: 2.125e-5, T_ref: 273.15, S: 144.0 },
+    h2: { mu_ref: 8.411e-6, T_ref: 273.15, S: 97.0 }
 };
 
 // ============================================
@@ -78,6 +119,16 @@ class GasState {
         const normalized = (gasType || 'air').toString().toLowerCase().trim();
         if (normalized.includes('co2') || normalized.includes('co₂')) {
             this.gasType = 'co2';
+        } else if (normalized === 'n2' || normalized.includes('nitrogen') || normalized.includes('질소')) {
+            this.gasType = 'n2';
+        } else if (normalized === 'o2' || normalized.includes('oxygen') || normalized.includes('산소')) {
+            this.gasType = 'o2';
+        } else if (normalized === 'he' || normalized.includes('helium') || normalized.includes('헬륨')) {
+            this.gasType = 'he';
+        } else if (normalized === 'ar' || normalized.includes('argon') || normalized.includes('아르곤')) {
+            this.gasType = 'ar';
+        } else if (normalized === 'h2' || normalized.includes('hydrogen') || normalized.includes('수소')) {
+            this.gasType = 'h2';
         } else {
             this.gasType = 'air';
         }
@@ -97,6 +148,7 @@ class GasState {
         this.Cp = 0;        // Specific heat at constant pressure [J/kg·K]
         this.Cv = 0;        // Specific heat at constant volume [J/kg·K]
         this.mu = 0;        // Dynamic viscosity [Pa·s]
+        this.viscosityModel = 'uninitialized';
     }
     
     // Clone this state
@@ -113,26 +165,37 @@ class GasState {
         newState.Cp = this.Cp;
         newState.Cv = this.Cv;
         newState.mu = this.mu;
+        newState.viscosityModel = this.viscosityModel;
         return newState;
     }
     
     // Get NASA coefficients for current temperature
-    _getNASACoeffs() {
-        const coeffs = ESTCN_NASA_COEFFS[this.gasType];
-        if (!coeffs) return ESTCN_NASA_COEFFS.air.high.a;
-        return (this.T < 1000) ? coeffs.low.a : coeffs.high.a;
+    _getNASACoeffs(T = this.T) {
+        const range = T < 1000 ? 'low' : 'high';
+        if (this.gasType !== 'air') {
+            return ESTCN_NASA_COEFFS[this.gasType][range].a;
+        }
+
+        const mixed = new Array(7).fill(0);
+        for (const component of ESTCN_AIR_COMPONENTS) {
+            const coeffs = ESTCN_NASA_COEFFS[component.gas][range].a;
+            for (let i = 0; i < mixed.length; i++) {
+                mixed[i] += component.moleFraction * coeffs[i];
+            }
+        }
+        return mixed;
     }
     
     // Calculate Cp/R from NASA polynomial
     _calcCpOverR() {
-        const a = this._getNASACoeffs();
+        const a = this._getNASACoeffs(this.T);
         const T = this.T;
         return a[0] + a[1]*T + a[2]*T*T + a[3]*T*T*T + a[4]*T*T*T*T;
     }
     
     // Calculate h/RT from NASA polynomial
     _calcHOverRT() {
-        const a = this._getNASACoeffs();
+        const a = this._getNASACoeffs(this.T);
         const T = this.T;
         const T2 = T * T;
         const T3 = T2 * T;
@@ -142,7 +205,7 @@ class GasState {
     
     // Calculate s°/R from NASA polynomial (standard state entropy)
     _calcSOverR() {
-        const a = this._getNASACoeffs();
+        const a = this._getNASACoeffs(this.T);
         const T = this.T;
         const T2 = T * T;
         const T3 = T2 * T;
@@ -150,155 +213,113 @@ class GasState {
         return a[0]*Math.log(T) + a[1]*T + a[2]*T2/2 + a[3]*T3/3 + a[4]*T4/4 + a[6];
     }
     
-    // Calculate viscosity using Sutherland's law
+    // Calculate viscosity. CoolProp values are bilinearly interpolated in
+    // temperature and log-pressure; this is compact and stable for dilute gas.
     _calcViscosity() {
+        const table = ESTCN_COOLPROP_TABLE;
+        if (this.gasType === 'air' && table) {
+            const temperatures = table.temperatureK;
+            const pressures = table.pressurePa;
+            const inTemperatureRange =
+                this.T >= temperatures[0] && this.T <= temperatures[temperatures.length - 1];
+            const inPressureRange =
+                this.p > 0 && this.p <= pressures[pressures.length - 1];
+
+            if (inTemperatureRange && inPressureRange) {
+                const bracket = (axis, value) => {
+                    if (value <= axis[0]) return [0, 0, 0];
+                    for (let i = 0; i < axis.length - 1; i++) {
+                        if (value <= axis[i + 1]) {
+                            return [i, i + 1, (value - axis[i]) / (axis[i + 1] - axis[i])];
+                        }
+                    }
+                    const last = axis.length - 1;
+                    return [last, last, 0];
+                };
+
+                const [t0, t1, ft] = bracket(temperatures, this.T);
+                // Below 10 Pa, viscosity is already in the dilute-gas limit.
+                const logPressure = Math.log(Math.max(this.p, pressures[0]));
+                const logAxis = pressures.map(Math.log);
+                const [p0, p1, fp] = bracket(logAxis, logPressure);
+                const values = table.viscosityPaS;
+                const mu0 = values[t0][p0] + fp * (values[t0][p1] - values[t0][p0]);
+                const mu1 = values[t1][p0] + fp * (values[t1][p1] - values[t1][p0]);
+                this.viscosityModel = `CoolProp ${table.coolPropVersion} ${table.fluid} table`;
+                return mu0 + ft * (mu1 - mu0);
+            }
+        }
+
         const params = ESTCN_SUTHERLAND[this.gasType] || ESTCN_SUTHERLAND.air;
         const { mu_ref, T_ref, S } = params;
+        this.viscosityModel = 'Sutherland fallback';
         return mu_ref * Math.pow(this.T / T_ref, 1.5) * (T_ref + S) / (this.T + S);
+    }
+
+    _nasaPropertiesAt(T) {
+        const a = this._getNASACoeffs(T);
+        const T2 = T * T;
+        const T3 = T2 * T;
+        const T4 = T3 * T;
+        const cpOverR = a[0] + a[1]*T + a[2]*T2 + a[3]*T3 + a[4]*T4;
+        const hOverRT = a[0] + a[1]*T/2 + a[2]*T2/3 + a[3]*T3/4 + a[4]*T4/5 + a[5]/T;
+        const sOverR = a[0]*Math.log(T) + a[1]*T + a[2]*T2/2 + a[3]*T3/3 + a[4]*T4/4 + a[6];
+        return {
+            Cp: cpOverR * this.R,
+            h: hOverRT * this.R * T + ESTCN_H_OFFSET,
+            sStandard: sOverR * this.R
+        };
+    }
+
+    _thermoPropertiesAt(T, p) {
+        const p_ref = 101325;
+        if (T >= ESTCN_T_MIN_NASA) {
+            const nasa = this._nasaPropertiesAt(T);
+            return {
+                Cp: nasa.Cp,
+                h: nasa.h,
+                s: nasa.sStandard - this.R * Math.log(p / p_ref)
+            };
+        }
+
+        // Below the NASA validity limit, continue from 200 K using a
+        // calorically-perfect segment anchored to the NASA h and s values.
+        // This preserves h and s exactly at the boundary.
+        const boundary = this._nasaPropertiesAt(ESTCN_T_MIN_NASA);
+        return {
+            Cp: boundary.Cp,
+            h: boundary.h + boundary.Cp * (T - ESTCN_T_MIN_NASA),
+            s: boundary.sStandard
+                + boundary.Cp * Math.log(T / ESTCN_T_MIN_NASA)
+                - this.R * Math.log(p / p_ref)
+        };
     }
     
     // Update all derived properties from (p, T)
     _updateFromPT() {
-        // Density from ideal gas law
-        this.rho = this.p / (this.R * this.T);
-        
-        // ============================================
-        // 200K 이하: 이상 기체 가정 (ESTCN 방식)
-        // 상온(300K) 물성을 그대로 사용
-        // ============================================
-        if (this.T < 200) {
-            // 이상 기체 물성 (상온 기준, ESTCN과 동일)
-            if (this.gasType === 'air') {
-                this.Cp = 1022.1;    // J/kg·K (상온 값)
-                this.gam = 1.39053;  // 상온 값
-            } else if (this.gasType === 'co2') {
-                this.Cp = 846.0;     // J/kg·K (상온 값)
-                this.gam = 1.289;    // 상온 값
-            } else {
-                this.Cp = 1022.1;
-                this.gam = 1.39053;
-            }
-            
-            this.Cv = this.Cp - this.R;
-            
-            // 이상 기체 엔탈피: h = Cp * T (기준점 0K) + 오프셋
-            this.h = this.Cp * this.T + ESTCN_H_OFFSET;
-            
-            // Internal energy: e = Cv * T (오프셋 없음, 내부 에너지는 상대값)
-            this.e = this.Cv * this.T;
-            
-            // 이상 기체 엔트로피: s = Cp*ln(T/T_ref) - R*ln(p/p_ref)
-            // 200K에서의 엔트로피를 기준으로 연속성 유지
-            const T_boundary = 200;
-            const p_ref = 101325;
-            
-            // 200K에서의 NASA polynomial 엔트로피 계산
-            const a = ESTCN_NASA_COEFFS[this.gasType].low.a;
-            const T_b = T_boundary;
-            const sOverR_200 = a[0]*Math.log(T_b) + a[1]*T_b + a[2]*T_b*T_b/2 + a[3]*T_b*T_b*T_b/3 + a[4]*T_b*T_b*T_b*T_b/4 + a[6];
-            const s_200_at_pref = this.R * sOverR_200;
-            
-            // 200K 기준으로 이상 기체 엔트로피 계산
-            this.s = s_200_at_pref + this.Cp * Math.log(this.T / T_boundary) - this.R * Math.log(this.p / p_ref);
-            
-            // Speed of sound
-            this.a = Math.sqrt(this.gam * this.R * this.T);
-            
-            // Viscosity (Sutherland's law still works at low T)
-            this.mu = this._calcViscosity();
-            
-            return;
+        if (!(this.p > 0) || !(this.T > 0)) {
+            throw new Error(`GasState requires positive p and T (p=${this.p}, T=${this.T})`);
         }
-        
-        // ============================================
-        // 200K 이상: NASA polynomial 사용
-        // ============================================
-        
-        // Cp from NASA polynomial
-        const CpOverR = this._calcCpOverR();
-        this.Cp = CpOverR * this.R;
-        
-        // Cv = Cp - R
+
+        this.rho = this.p / (this.R * this.T);
+        const thermo = this._thermoPropertiesAt(this.T, this.p);
+        this.Cp = thermo.Cp;
         this.Cv = this.Cp - this.R;
-        
-        // gamma = Cp / Cv
         this.gam = this.Cp / this.Cv;
-        
-        // Enthalpy from NASA polynomial + 오프셋: h = (h/RT) * R * T + offset
-        const hOverRT = this._calcHOverRT();
-        this.h = hOverRT * this.R * this.T + ESTCN_H_OFFSET;
-        
-        // Internal energy: e = Cv * T (오프셋 없음, 내부 에너지는 상대값)
-        this.e = this.Cv * this.T;
-        
-        // Entropy: s = R * (s°/R - ln(p/p_ref))
-        const sOverR = this._calcSOverR();
-        const p_ref = 101325;  // Reference pressure [Pa]
-        this.s = this.R * (sOverR - Math.log(this.p / p_ref));
-        
-        // Speed of sound
+        this.h = thermo.h;
+        this.e = this.h - this.p / this.rho;
+        this.s = thermo.s;
         this.a = Math.sqrt(this.gam * this.R * this.T);
-        
-        // Viscosity
         this.mu = this._calcViscosity();
     }
     
     // Update all derived properties from (rho, T)
     _updateFromRhoT() {
-        // Pressure from ideal gas law
-        this.p = this.rho * this.R * this.T;
-        
-        // ============================================
-        // 200K 이하: 이상 기체 가정 (ESTCN 방식)
-        // _updateFromPT()와 동일한 로직 사용
-        // ============================================
-        if (this.T < 200) {
-            if (this.gasType === 'air') {
-                this.Cp = 1022.1;
-                this.gam = 1.39053;
-            } else if (this.gasType === 'co2') {
-                this.Cp = 846.0;
-                this.gam = 1.289;
-            } else {
-                this.Cp = 1022.1;
-                this.gam = 1.39053;
-            }
-            
-            this.Cv = this.Cp - this.R;
-            this.h = this.Cp * this.T + ESTCN_H_OFFSET;
-            this.e = this.Cv * this.T;
-            
-            const T_boundary = 200;
-            const p_ref = 101325;
-            const a = ESTCN_NASA_COEFFS[this.gasType].low.a;
-            const T_b = T_boundary;
-            const sOverR_200 = a[0]*Math.log(T_b) + a[1]*T_b + a[2]*T_b*T_b/2 + a[3]*T_b*T_b*T_b/3 + a[4]*T_b*T_b*T_b*T_b/4 + a[6];
-            const s_200_at_pref = this.R * sOverR_200;
-            this.s = s_200_at_pref + this.Cp * Math.log(this.T / T_boundary) - this.R * Math.log(this.p / p_ref);
-            
-            this.a = Math.sqrt(this.gam * this.R * this.T);
-            this.mu = this._calcViscosity();
-            return;
+        if (!(this.rho > 0) || !(this.T > 0)) {
+            throw new Error(`GasState requires positive rho and T (rho=${this.rho}, T=${this.T})`);
         }
-        
-        // ============================================
-        // 200K 이상: NASA polynomial 사용
-        // ============================================
-        const CpOverR = this._calcCpOverR();
-        this.Cp = CpOverR * this.R;
-        this.Cv = this.Cp - this.R;
-        this.gam = this.Cp / this.Cv;
-        
-        const hOverRT = this._calcHOverRT();
-        this.h = hOverRT * this.R * this.T + ESTCN_H_OFFSET;  // 오프셋 추가!
-        this.e = this.Cv * this.T;  // _updateFromPT()와 동일하게 수정
-        
-        const sOverR = this._calcSOverR();
-        const p_ref = 101325;
-        this.s = this.R * (sOverR - Math.log(this.p / p_ref));
-        
-        this.a = Math.sqrt(this.gam * this.R * this.T);
-        this.mu = this._calcViscosity();
+        this.p = this.rho * this.R * this.T;
+        this._updateFromPT();
     }
     
     // ============================================
@@ -328,60 +349,43 @@ class GasState {
     /**
      * Set state from pressure and entropy (isentropic process)
      * This is the key function for isentropic expansions.
-     * Uses Newton-Raphson iteration to find T such that s(p, T) = s_target.
-     * 
-     * Note: For T < 200K, ideal gas assumption is used (ESTCN method).
+     * Uses a bracketed logarithmic-temperature solve for s(p,T)=s_target.
      */
     set_ps(p, s_target) {
+        if (!(p > 0) || !Number.isFinite(s_target)) {
+            throw new Error(`set_ps requires positive pressure and finite entropy (p=${p}, s=${s_target})`);
+        }
         this.p = p;
-        
-        // Initial guess: use current temperature
-        let T = this.T;
-        if (T < 50 || T > 10000) T = 300;
-        
-        const tol = 1e-6;
-        const maxIter = 100;  // Increased for low temperature convergence
-        
-        for (let iter = 0; iter < maxIter; iter++) {
-            this.T = T;
-            this._updateFromPT();
-            
-            const s_calc = this.s;
-            const error = s_calc - s_target;
-            
-            if (Math.abs(error / s_target) < tol) {
-                return;  // Converged
-            }
-            
-            // Numerical derivative ds/dT
-            const dT = Math.max(T * 0.001, 0.1);  // Minimum step for low T
-            this.T = T + dT;
-            this._updateFromPT();
-            const s_plus = this.s;
-            const ds_dT = (s_plus - s_calc) / dT;
-            
-            if (Math.abs(ds_dT) < 1e-15) {
-                console.warn('set_ps: ds_dT too small');
+        const entropyAt = (T) => this._thermoPropertiesAt(T, p).s;
+        let lo = 5;
+        let hi = 10000;
+        const fLo = entropyAt(lo) - s_target;
+        const fHi = entropyAt(hi) - s_target;
+        if (fLo > 0 || fHi < 0) {
+            throw new Error(`set_ps could not bracket temperature for p=${p}, s=${s_target}`);
+        }
+
+        for (let iter = 0; iter < 100; iter++) {
+            const mid = Math.sqrt(lo * hi);
+            const fMid = entropyAt(mid) - s_target;
+            if (Math.abs(fMid) <= Math.max(1e-7 * Math.abs(s_target), 1e-5)) {
+                lo = mid;
+                hi = mid;
                 break;
             }
-            
-            // Newton-Raphson update
-            let T_new = T - error / ds_dT;
-            
-            // Limit step size to 50% of current value
-            const delta = T_new - T;
-            if (Math.abs(delta) > 0.5 * T) {
-                T_new = T + Math.sign(delta) * 0.5 * T;
+            if (fMid > 0) {
+                hi = mid;
+            } else {
+                lo = mid;
             }
-            
-            // Clamp to valid range (allow down to 10K for high Mach expansions)
-            T_new = Math.max(10, Math.min(10000, T_new));
-            T = T_new;
         }
-        
-        // Final update
-        this.T = T;
+
+        this.T = Math.sqrt(lo * hi);
         this._updateFromPT();
+        const relativeError = Math.abs(this.s - s_target) / Math.max(Math.abs(s_target), 1);
+        if (relativeError > 1e-6) {
+            throw new Error(`set_ps entropy residual too large: ${relativeError}`);
+        }
     }
     
     /**
@@ -453,6 +457,9 @@ function my_limiter(delta, orig, frac = 0.5) {
  * @returns {Array} [V2, Vg] - Post-shock velocity in shock frame, lab frame velocity
  */
 function normal_shock(state1, Vs, state2) {
+    if (!(Vs > state1.a)) {
+        throw new Error(`Shock speed must be supersonic relative to state 1 (Vs=${Vs}, a1=${state1.a})`);
+    }
     // Initial guess via ideal gas relations
     let [V2, Vg] = shock_ideal(state1, Vs, state2);
     
@@ -599,6 +606,9 @@ function reflected_shock(state2, Vg, state5) {
  * @returns {Array} [new_state, V] - Expanded state and flow velocity
  */
 function expand_from_stagnation(p_over_p0, state0) {
+    if (!(p_over_p0 > 0) || p_over_p0 > 1.0) {
+        throw new Error(`expand_from_stagnation requires 0 < p/p0 <= 1 (received ${p_over_p0})`);
+    }
     const new_state = state0.clone();
     
     // Set new pressure while keeping entropy constant
@@ -615,12 +625,12 @@ function expand_from_stagnation(p_over_p0, state0) {
     const H0 = state0.h;  // Stagnation enthalpy (V0 = 0)
     const h = new_state.h;
     
-    if (H0 < h) {
-        console.error('expand_from_stagnation: H0 < h, cannot expand');
-        return [new_state, 0];
+    const enthalpyDrop = H0 - h;
+    if (enthalpyDrop < -Math.max(1e-6 * Math.abs(H0), 1e-3)) {
+        throw new Error(`expand_from_stagnation produced h > H0 by ${-enthalpyDrop} J/kg`);
     }
-    
-    const V = Math.sqrt(2.0 * (H0 - h));
+
+    const V = Math.sqrt(2.0 * Math.max(0, enthalpyDrop));
     
     return [new_state, V];
 }
@@ -632,36 +642,12 @@ function expand_from_stagnation(p_over_p0, state0) {
  * @returns {Object} {state6, V6, mflux6} - Throat state, velocity, mass flux
  */
 function expansion_to_throat(state0) {
-    // Find pressure ratio that gives M = 1
-    function error_at_throat(x) {
-        const [state, V] = expand_from_stagnation(x, state0);
-        return (V / state.a) - 1.0;  // M - 1 = 0
-    }
-    
-    // Secant method to find p6/p0
-    let x1 = 0.6;  // Initial guess (ideal gas: p*/p0 ≈ 0.528 for gamma=1.4)
-    let x2 = 0.5;
-    
-    let f1 = error_at_throat(x1);
-    let f2 = error_at_throat(x2);
-    
-    for (let iter = 0; iter < 30; iter++) {
-        if (Math.abs(f2) < 1e-6) break;
-        
-        const slope = (f2 - f1) / (x2 - x1);
-        if (Math.abs(slope) < 1e-15) break;
-        
-        const x3 = x2 - f2 / slope;
-        x1 = x2;
-        f1 = f2;
-        x2 = Math.max(0.01, Math.min(0.99, x3));
-        f2 = error_at_throat(x2);
-    }
-    
-    const [state6, V6] = expand_from_stagnation(x2, state0);
+    const result = expansion_to_mach(state0, 1.0);
+    const state6 = result.state7;
+    const V6 = result.V7;
     const mflux6 = state6.rho * V6;  // Mass flux per unit area
     
-    return { state6, V6, mflux6, p_ratio: x2 };
+    return { state6, V6, mflux6, p_ratio: result.p_ratio };
 }
 
 /**
@@ -674,110 +660,191 @@ function expansion_to_throat(state0) {
  * @returns {Object} {state7, V7} - Exit state and velocity
  */
 function expansion_to_area_ratio(state0, area_ratio, mflux_throat) {
-    const H0 = state0.h;  // Stagnation enthalpy
-    
-    // Find pressure ratio that gives correct mass flux
-    function error_in_mass_flux(p_ratio) {
+    if (!(area_ratio > 1) || !Number.isFinite(area_ratio)) {
+        throw new Error(`Nozzle area ratio must be greater than 1 (received ${area_ratio})`);
+    }
+
+    const error_in_mass_flux = (p_ratio) => {
         const [state, V] = expand_from_stagnation(p_ratio, state0);
         const mflux = state.rho * V * area_ratio;
         return (mflux - mflux_throat) / mflux_throat;
+    };
+
+    const throat = expansion_to_mach(state0, 1.0);
+    let low = Math.max(1e-8, throat.p_ratio * 1e-4);
+    let high = throat.p_ratio;
+    if (error_in_mass_flux(low) > 0 || error_in_mass_flux(high) < 0) {
+        throw new Error(`Could not bracket supersonic solution for area ratio ${area_ratio}`);
     }
-    
-    // Secant method - start from low pressure (supersonic branch)
-    let x1 = 0.01;
-    let x2 = 0.02;
-    
-    let f1 = error_in_mass_flux(x1);
-    let f2 = error_in_mass_flux(x2);
-    
-    for (let iter = 0; iter < 50; iter++) {
-        if (Math.abs(f2) < 1e-6) break;
-        
-        const slope = (f2 - f1) / (x2 - x1);
-        if (Math.abs(slope) < 1e-15) break;
-        
-        const x3 = x2 - f2 / slope;
-        x1 = x2;
-        f1 = f2;
-        x2 = Math.max(1e-6, Math.min(0.5, x3));  // Stay on supersonic branch
-        f2 = error_in_mass_flux(x2);
+
+    for (let iter = 0; iter < 100; iter++) {
+        const mid = Math.sqrt(low * high);
+        const error = error_in_mass_flux(mid);
+        if (Math.abs(error) < 1e-8) {
+            low = mid;
+            high = mid;
+            break;
+        }
+        if (error > 0) {
+            high = mid;
+        } else {
+            low = mid;
+        }
     }
-    
-    const [state7, V7] = expand_from_stagnation(x2, state0);
-    
-    return { state7, V7, p_ratio: x2 };
+
+    const p_ratio = Math.sqrt(low * high);
+    const [state7, V7] = expand_from_stagnation(p_ratio, state0);
+    return { state7, V7, p_ratio };
 }
 
 /**
  * Isentropic expansion to a given Mach number.
- * Uses ideal gas relations for low-temperature exit conditions (Stage 7).
+ * Solves pressure ratio with the selected variable-Cp gas model.
  * 
  * @param {GasState} state0 - Stagnation state (reservoir)
  * @param {number} M_target - Target Mach number
  * @returns {Object} {state7, V7} - Exit state and velocity
  */
 function expansion_to_mach(state0, M_target) {
-    const state7 = state0.clone();
-    
-    // ============================================
-    // 이상기체 등엔트로피 팽창 공식 사용 (ESTCN 방식)
-    // ============================================
-    
-    // Stage 7은 저온이므로 gamma = 1.3905 고정 (air, 저온)
-    const gam = 1.3905;
-    const Cp = 1022.1;  // J/kg·K
-    const R = state7.R;
-    const Cv = Cp - R;
-    
-    // 등엔트로피 관계식: T7/T0 = (1 + (gam-1)/2 * M^2)^(-1)
-    const T_ratio = Math.pow(1.0 + (gam - 1.0) / 2.0 * M_target * M_target, -1.0);
-    const T7 = state0.T * T_ratio;
-    
-    // 등엔트로피 관계식: p7/p0 = (T7/T0)^(gam/(gam-1))
-    const p_ratio = Math.pow(T_ratio, gam / (gam - 1.0));
-    const p7 = state0.p * p_ratio;
-    
-    // 밀도: 이상기체 법칙
-    const rho7 = p7 / (R * T7);
-    
-    // 음속
-    const a7 = Math.sqrt(gam * R * T7);
-    
-    // 속도
-    const V7 = M_target * a7;
-    
-    // 엔탈피: total enthalpy 보존에서 역산
-    // h_total = h + 0.5*V^2 = 일정
-    // h = h_total - 0.5*V^2
-    const h_total = state0.h;  // state0는 정체 상태 (V=0)이므로 h_total = h
-    const h7 = h_total - 0.5 * V7 * V7;
-    
-    // 내부 에너지
-    const e7 = Cv * T7;
-    
-    // 엔트로피: 등엔트로피이므로 state0와 동일
-    const s7 = state0.s;
-    
-    // 점성: Sutherland 공식
-    const mu_ref = 1.716e-5;
-    const T_ref = 273.15;
-    const S = 110.4;
-    const mu7 = mu_ref * Math.pow(T7 / T_ref, 1.5) * (T_ref + S) / (T7 + S);
-    
-    // State 7 설정
-    state7.p = p7;
-    state7.T = T7;
-    state7.rho = rho7;
-    state7.h = h7;
-    state7.e = e7;
-    state7.s = s7;
-    state7.a = a7;
-    state7.gam = gam;
-    state7.Cp = Cp;
-    state7.Cv = Cv;
-    state7.mu = mu7;
-    
-    return { state7, V7, p_ratio };
+    if (!(M_target > 0) || !Number.isFinite(M_target)) {
+        throw new Error(`Target Mach number must be positive (received ${M_target})`);
+    }
+
+    // ESTCN uses the perfect-gas relation only as an initial estimate. The
+    // actual pressure ratio is solved with the selected gas model so entropy,
+    // total enthalpy and Mach number are satisfied simultaneously.
+    const gammaGuess = state0.gam;
+    const idealGuess = Math.pow(
+        1 + 0.5 * (gammaGuess - 1) * M_target * M_target,
+        -gammaGuess / (gammaGuess - 1)
+    );
+
+    const evaluate = (pRatio) => {
+        const [state, V] = expand_from_stagnation(pRatio, state0);
+        return { state, V, mach: V / state.a };
+    };
+
+    let low = Math.max(1e-10, idealGuess * 0.01);
+    let high = Math.min(1.0, idealGuess * 100);
+    let atLow = evaluate(low);
+    let atHigh = evaluate(high);
+
+    while (atLow.mach < M_target && low > 1e-10) {
+        low = Math.max(1e-10, low * 0.1);
+        atLow = evaluate(low);
+    }
+    while (atHigh.mach > M_target && high < 1.0) {
+        high = Math.min(1.0, high * 2);
+        atHigh = evaluate(high);
+    }
+    if (atLow.mach < M_target || atHigh.mach > M_target) {
+        throw new Error(`Could not bracket pressure ratio for Mach ${M_target}`);
+    }
+
+    let result = atHigh;
+    for (let iter = 0; iter < 100; iter++) {
+        const mid = Math.sqrt(low * high);
+        result = evaluate(mid);
+        const error = result.mach - M_target;
+        if (Math.abs(error) < 1e-8) {
+            low = mid;
+            high = mid;
+            break;
+        }
+        if (error > 0) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    const p_ratio = Math.sqrt(low * high);
+    result = evaluate(p_ratio);
+    return { state7: result.state, V7: result.V, p_ratio };
+}
+
+/**
+ * Bring a flowing state to rest isentropically using the same thermodynamic
+ * model as the static state.
+ */
+function total_condition(state1, V1) {
+    if (!(V1 >= 0) || !Number.isFinite(V1)) {
+        throw new Error(`total_condition requires a finite non-negative velocity (received ${V1})`);
+    }
+    const targetEnthalpy = state1.h + 0.5 * V1 * V1;
+    const targetEntropy = state1.s;
+    if (V1 === 0) return state1.clone();
+
+    const gammaGuess = state1.gam;
+    const machGuess = V1 / state1.a;
+    const idealPressureRatio = Math.pow(
+        1 + 0.5 * (gammaGuess - 1) * machGuess * machGuess,
+        gammaGuess / (gammaGuess - 1)
+    );
+
+    const evaluate = (pressureRatio) => {
+        const state = state1.clone();
+        state.set_ps(state1.p * pressureRatio, targetEntropy);
+        return { state, residual: state.h - targetEnthalpy };
+    };
+
+    let low = 1.0;
+    let high = Math.max(1.1, idealPressureRatio * 2);
+    let atHigh = evaluate(high);
+    while (atHigh.residual < 0 && high < 1e12) {
+        high *= 10;
+        atHigh = evaluate(high);
+    }
+    if (atHigh.residual < 0) {
+        throw new Error('Could not bracket total-condition pressure');
+    }
+
+    let result = atHigh;
+    for (let iter = 0; iter < 100; iter++) {
+        const mid = Math.sqrt(low * high);
+        result = evaluate(mid);
+        if (Math.abs(result.residual) <= Math.max(1e-8 * Math.abs(targetEnthalpy), 1e-3)) {
+            low = mid;
+            high = mid;
+            break;
+        }
+        if (result.residual > 0) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    return evaluate(Math.sqrt(low * high)).state;
+}
+
+/**
+ * Pitot state: process supersonic flow through a normal shock and then bring
+ * the subsonic stream to rest isentropically.
+ */
+function pitot_condition(state1, V1) {
+    if (V1 > state1.a) {
+        const postShock = new GasState(state1.gasType);
+        postShock.set_pT(state1.p, state1.T);
+        const [V2] = normal_shock(state1.clone(), V1, postShock);
+        return total_condition(postShock, V2);
+    }
+    return total_condition(state1, V1);
+}
+
+function thermodynamicResiduals(state, stagnationEnthalpy = null, V = 0, referenceEntropy = null) {
+    const identityScale = Math.max(Math.abs(state.h), 1);
+    const enthalpyIdentity = (state.h - (state.e + state.p / state.rho)) / identityScale;
+    const totalEnthalpy = state.h + 0.5 * V * V;
+    return {
+        enthalpyIdentity,
+        totalEnthalpy,
+        totalEnthalpyRelativeError: stagnationEnthalpy === null
+            ? null
+            : (totalEnthalpy - stagnationEnthalpy) / Math.max(Math.abs(stagnationEnthalpy), 1),
+        entropyRelativeError: referenceEntropy === null
+            ? null
+            : (state.s - referenceEntropy) / Math.max(Math.abs(referenceEntropy), 1)
+    };
 }
 
 // ============================================
@@ -850,19 +917,15 @@ function calculateShockTunnel(params) {
     // ========================================
     // State 5s: Equilibrium condition (isentropic relaxation to pe)
     // ========================================
-    let state5s = state5.clone();  // 항상 복사!
-    let V5s = 0;
+    let state5s = state5.clone();
+    const V5s = 0;
     
     if (pe && pe !== state5.p) {
         console.log('Start calculation of isentropic relaxation.');
         
-        // Isentropic expansion from state5 to pe
-        // State 5 is stagnation (u = 0), so we use expand_from_stagnation
-        const p_ratio = pe / state5.p;
-        const [expanded_state, V_expanded] = expand_from_stagnation(p_ratio, state5);
-        
-        state5s = expanded_state;
-        V5s = V_expanded;
+        // ESTCN treats 5s as a new, quiescent nozzle-reservoir condition:
+        // measured pressure pe with the entropy of state 5.
+        state5s.set_ps(pe, state5.s);
         
         console.log('State 5s: equilibrium condition (relaxation to pe)');
         state5s.write_state();
@@ -915,22 +978,8 @@ function calculateShockTunnel(params) {
     const M7_calc = V7 / state7.a;
     const mflux7 = state7.rho * V7;
     
-    // Calculate pitot pressure (for reference)
-    // Pitot = p * (1 + (gamma-1)/2 * M^2)^(gamma/(gamma-1)) for subsonic
-    // For supersonic, need to account for normal shock
-    let pitot7;
-    if (M7_calc > 1) {
-        // Rayleigh pitot formula for supersonic flow
-        const g = state7.gam;
-        const M = M7_calc;
-        const term1 = Math.pow((g + 1) * M * M / 2, g / (g - 1));
-        const term2 = Math.pow((2 * g * M * M - (g - 1)) / (g + 1), 1 / (1 - g));
-        pitot7 = state7.p * term1 * term2;
-    } else {
-        const g = state7.gam;
-        const M = M7_calc;
-        pitot7 = state7.p * Math.pow(1 + (g - 1) / 2 * M * M, g / (g - 1));
-    }
+    const state7Pitot = pitot_condition(state7, V7);
+    const pitot7 = state7Pitot.p;
     
     console.log('State 7: Nozzle-exit condition');
     state7.write_state();
@@ -940,6 +989,15 @@ function calculateShockTunnel(params) {
     
     console.log('Done with reflected shock tube calculation.');
     console.log('='.repeat(60));
+
+    const diagnostics = {
+        state1: thermodynamicResiduals(state1),
+        state2: thermodynamicResiduals(state2),
+        state5: thermodynamicResiduals(state5),
+        state5s: thermodynamicResiduals(state5s),
+        state6: thermodynamicResiduals(state6, state5s.h, V6, state5s.s),
+        state7: thermodynamicResiduals(state7, state5s.h, V7, state5s.s)
+    };
     
     // ========================================
     // Return all results
@@ -1039,6 +1097,8 @@ function calculateShockTunnel(params) {
             Cp: state7.Cp,
             R: state7.R,
             mu: state7.mu,
+            viscosityModel: state7.viscosityModel,
+            Re_unit: calcReynoldsUnit(state7.rho, V7, state7.mu),
             u: V7,
             V: V7,
             M: M7_calc,
@@ -1049,7 +1109,8 @@ function calculateShockTunnel(params) {
         // Summary
         enthalpy_MJ: H5s_H1 / 1e6,
         shock_speed: Vs,
-        reflected_shock_speed: Vr
+        reflected_shock_speed: Vr,
+        diagnostics
     };
 }
 
@@ -1083,6 +1144,27 @@ if (typeof window !== 'undefined') {
     window.expansion_to_throat = expansion_to_throat;
     window.expansion_to_mach = expansion_to_mach;
     window.expansion_to_area_ratio = expansion_to_area_ratio;
+    window.total_condition = total_condition;
+    window.pitot_condition = pitot_condition;
+    window.thermodynamicResiduals = thermodynamicResiduals;
     window.calcReynoldsUnit = calcReynoldsUnit;
     window.calcTotalEnthalpy = calcTotalEnthalpy;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        GasState,
+        calculateShockTunnel,
+        normal_shock,
+        reflected_shock,
+        expand_from_stagnation,
+        expansion_to_throat,
+        expansion_to_mach,
+        expansion_to_area_ratio,
+        total_condition,
+        pitot_condition,
+        thermodynamicResiduals,
+        calcReynoldsUnit,
+        calcTotalEnthalpy
+    };
 }
